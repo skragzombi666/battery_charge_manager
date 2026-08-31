@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - .release/bcm-0.1.0-source.tar.gz.b64
+      - .release/chunks/**
       - .github/workflows/apply-release-0.1.0.yml
   workflow_dispatch:
 
@@ -25,7 +25,8 @@ jobs:
       - name: Apply clean 0.1.0 source tree
         shell: bash
         run: |
-          base64 --decode .release/bcm-0.1.0-source.tar.gz.b64 > /tmp/battery-charge-manager-0.1.0.tar.gz
+          cat .release/chunks/part-* | base64 --decode > /tmp/battery-charge-manager-0.1.0.tar.gz
+          echo "889b9d9cc970b45e632719d9c741454383fbc204571bf146d7d4e9833a8ce869  /tmp/battery-charge-manager-0.1.0.tar.gz" | sha256sum --check
           tar -xzf /tmp/battery-charge-manager-0.1.0.tar.gz -C .
           rm -rf .release
           rm -f .github/workflows/apply-release-0.1.0.yml
