@@ -7,12 +7,12 @@ from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, Entity
 
-from .const import DOMAIN, NAME, SIGNAL_UPDATE
+from .const import DOMAIN, NAME, VERSION
 from .manager import BatteryChargeManager
 
 
 class BatteryChargeManagerEntity(Entity):
-    """Base entity."""
+    """Base entity linked to the manager dispatcher."""
 
     _attr_has_entity_name = True
 
@@ -30,15 +30,16 @@ class BatteryChargeManagerEntity(Entity):
             identifiers={(DOMAIN, entry.entry_id)},
             name=NAME,
             manufacturer="Battery Charge Manager",
-            model="Virtual battery charge controller",
+            model="Calibrated energy charge controller",
+            sw_version=VERSION,
         )
 
     async def async_added_to_hass(self) -> None:
-        """Register state listener."""
+        """Register update listener."""
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"{SIGNAL_UPDATE}_{self.entry.entry_id}",
+                self.manager.signal,
                 self._handle_manager_update,
             )
         )

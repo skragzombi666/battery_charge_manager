@@ -2,10 +2,15 @@
 
 Describe the change and why it is needed.
 
-## Testing
+## Validation
 
-Describe how the change was tested.
+- [ ] Python files compile
+- [ ] JSON files validate
+- [ ] Frontend JavaScript passes syntax checking
+- [ ] HACS validation passes
+- [ ] hassfest passes
+- [ ] Safety and restart behavior were considered
 
-## Contributor License Agreement
+## Contributor licence
 
-- [ ] I have read and agree to the Contributor License Agreement in `CONTRIBUTING.md` for the contribution in this pull request.
+- [ ] I have read and accept the Contributor License Agreement in `CONTRIBUTING.md` for this contribution.

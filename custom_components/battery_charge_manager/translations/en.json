@@ -4,13 +4,15 @@
     "step": {
       "user": {
         "title": "Battery Charge Manager",
-        "description": "Select the smart plug and cumulative energy sensor used for charging.",
+        "description": "Configure the first physical charging setup. Further setups, battery types, idle measurements and calibrations are managed in the Battery Charge Manager panel.",
         "data": {
-          "switch_entity": "Charge switch",
-          "energy_sensor": "Energy sensor",
+          "setup_name": "Charging setup name",
+          "switch_entity": "Smart plug / charge switch",
+          "energy_sensor": "Cumulative energy sensor",
           "power_sensor": "Power sensor (optional)",
-          "default_target": "Default storage charge",
-          "max_session_hours": "Maximum session duration"
+          "default_target": "Default relative charge energy",
+          "max_session_hours": "Maximum session duration",
+          "temperature_sensor": "Temperature sensor (optional)"
         }
       }
     },
@@ -18,67 +20,11 @@
       "already_configured": "Battery Charge Manager is already configured."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Battery Charge Manager",
-        "menu_options": {
-          "global_settings": "Global settings",
-          "add_battery": "Add battery type",
-          "edit_battery": "Edit battery type",
-          "delete_battery": "Delete battery type"
-        }
-      },
-      "global_settings": {
-        "title": "Global settings",
-        "data": {
-          "switch_entity": "Charge switch",
-          "energy_sensor": "Energy sensor",
-          "power_sensor": "Power sensor (optional)",
-          "default_target": "Default storage charge",
-          "max_session_hours": "Maximum session duration"
-        }
-      },
-      "add_battery": {
-        "title": "Add battery type",
-        "data": {
-          "name": "Battery name",
-          "nominal_capacity_mah": "Nominal capacity",
-          "technology": "Technology",
-          "form_factor": "Form factor",
-          "image": "Battery image"
-        }
-      },
-      "edit_battery": {
-        "title": "Select battery type",
-        "data": {
-          "battery_id": "Battery type"
-        }
-      },
-      "edit_battery_details": {
-        "title": "Edit battery type",
-        "data": {
-          "name": "Battery name",
-          "nominal_capacity_mah": "Nominal capacity",
-          "technology": "Technology",
-          "form_factor": "Form factor",
-          "image": "Battery image"
-        }
-      },
-      "delete_battery": {
-        "title": "Delete battery type",
-        "description": "Deleting a battery type also deletes all calibration values stored for it.",
-        "data": {
-          "battery_id": "Battery type"
-        }
-      }
-    },
-    "error": {
-      "duplicate_name": "A battery type with this name already exists."
-    }
-  },
   "entity": {
     "select": {
+      "charging_setup": {
+        "name": "Charging setup"
+      },
       "battery_type": {
         "name": "Battery type"
       },
@@ -88,24 +34,48 @@
     },
     "number": {
       "target_charge": {
-        "name": "Storage charge target"
+        "name": "Relative charge energy target"
       }
     },
     "sensor": {
       "status": {
         "name": "Status"
       },
-      "target_energy": {
-        "name": "Target energy"
+      "phase": {
+        "name": "Charge phase"
       },
-      "delivered_energy": {
-        "name": "Delivered energy"
+      "target_energy": {
+        "name": "Target net energy"
+      },
+      "gross_energy": {
+        "name": "Gross energy"
+      },
+      "idle_energy": {
+        "name": "Idle energy"
+      },
+      "net_energy": {
+        "name": "Net charge energy"
       },
       "progress": {
         "name": "Progress"
       },
+      "current_power": {
+        "name": "Current power"
+      },
+      "elapsed_time": {
+        "name": "Elapsed time"
+      },
+      "idle_baseline": {
+        "name": "Idle power baseline"
+      },
+      "calibration_quality": {
+        "name": "Calibration quality"
+      },
       "battery_info": {
         "name": "Battery information"
+      },
+      "current_temperature": {
+        "name": "Current temperature"
       }
     },
     "button": {
@@ -119,7 +89,10 @@
         "name": "Start calibration"
       },
       "finish_calibration": {
-        "name": "Finish calibration"
+        "name": "Finish calibration manually"
+      },
+      "start_idle_measurement": {
+        "name": "Start automatic idle measurement"
       }
     }
   }

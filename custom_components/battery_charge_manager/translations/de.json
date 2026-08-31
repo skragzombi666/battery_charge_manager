@@ -4,83 +4,29 @@
     "step": {
       "user": {
         "title": "Battery Charge Manager",
-        "description": "Smart Plug und kumulativen Energiezähler für das Laden auswählen.",
+        "description": "Die erste physische Ladeanordnung konfigurieren. Weitere Ladeanordnungen, Akkutypen, Leerlaufmessungen und Kalibrationen werden im Battery-Charge-Manager-Panel verwaltet.",
         "data": {
-          "switch_entity": "Ladeschalter",
-          "energy_sensor": "Energiezähler",
+          "setup_name": "Name der Ladeanordnung",
+          "switch_entity": "Smart Plug / Ladeschalter",
+          "energy_sensor": "Kumulativer Energiesensor",
           "power_sensor": "Leistungssensor (optional)",
-          "default_target": "Standard-Lagerladung",
-          "max_session_hours": "Maximale Ladedauer"
+          "default_target": "Standardwert relative Ladeenergie",
+          "max_session_hours": "Maximale Sitzungsdauer",
+          "temperature_sensor": "Temperatursensor (optional)"
         }
       }
     },
     "abort": {
-      "already_configured": "Battery Charge Manager ist bereits eingerichtet."
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Battery Charge Manager",
-        "menu_options": {
-          "global_settings": "Globale Einstellungen",
-          "add_battery": "Batterietyp hinzufügen",
-          "edit_battery": "Batterietyp bearbeiten",
-          "delete_battery": "Batterietyp löschen"
-        }
-      },
-      "global_settings": {
-        "title": "Globale Einstellungen",
-        "data": {
-          "switch_entity": "Ladeschalter",
-          "energy_sensor": "Energiezähler",
-          "power_sensor": "Leistungssensor (optional)",
-          "default_target": "Standard-Lagerladung",
-          "max_session_hours": "Maximale Ladedauer"
-        }
-      },
-      "add_battery": {
-        "title": "Batterietyp hinzufügen",
-        "data": {
-          "name": "Batteriename",
-          "nominal_capacity_mah": "Nennkapazität",
-          "technology": "Technischer Typ",
-          "form_factor": "Bauform",
-          "image": "Bild der Batterie"
-        }
-      },
-      "edit_battery": {
-        "title": "Batterietyp auswählen",
-        "data": {
-          "battery_id": "Batterietyp"
-        }
-      },
-      "edit_battery_details": {
-        "title": "Batterietyp bearbeiten",
-        "data": {
-          "name": "Batteriename",
-          "nominal_capacity_mah": "Nennkapazität",
-          "technology": "Technischer Typ",
-          "form_factor": "Bauform",
-          "image": "Bild der Batterie"
-        }
-      },
-      "delete_battery": {
-        "title": "Batterietyp löschen",
-        "description": "Beim Löschen eines Batterietyps werden auch alle zugehörigen Kalibrationswerte gelöscht.",
-        "data": {
-          "battery_id": "Batterietyp"
-        }
-      }
-    },
-    "error": {
-      "duplicate_name": "Ein Batterietyp mit diesem Namen existiert bereits."
+      "already_configured": "Battery Charge Manager ist bereits konfiguriert."
     }
   },
   "entity": {
     "select": {
+      "charging_setup": {
+        "name": "Ladeanordnung"
+      },
       "battery_type": {
-        "name": "Batterietyp"
+        "name": "Akkutyp"
       },
       "quantity": {
         "name": "Anzahl"
@@ -88,24 +34,48 @@
     },
     "number": {
       "target_charge": {
-        "name": "Ziel-Lagerladung"
+        "name": "Zielwert relative Ladeenergie"
       }
     },
     "sensor": {
       "status": {
         "name": "Status"
       },
-      "target_energy": {
-        "name": "Zielenergie"
+      "phase": {
+        "name": "Ladephase"
       },
-      "delivered_energy": {
-        "name": "Geladene Energie"
+      "target_energy": {
+        "name": "Ziel-Nettoenergie"
+      },
+      "gross_energy": {
+        "name": "Bruttoenergie"
+      },
+      "idle_energy": {
+        "name": "Leerlaufenergie"
+      },
+      "net_energy": {
+        "name": "Netto-Ladeenergie"
       },
       "progress": {
         "name": "Fortschritt"
       },
+      "current_power": {
+        "name": "Aktuelle Leistung"
+      },
+      "elapsed_time": {
+        "name": "Vergangene Zeit"
+      },
+      "idle_baseline": {
+        "name": "Leerlaufleistung"
+      },
+      "calibration_quality": {
+        "name": "Kalibrationsqualität"
+      },
       "battery_info": {
-        "name": "Batterieinformationen"
+        "name": "Akkuinformationen"
+      },
+      "current_temperature": {
+        "name": "Aktuelle Temperatur"
       }
     },
     "button": {
@@ -116,10 +86,13 @@
         "name": "Stoppen"
       },
       "start_calibration": {
-        "name": "Kalibrierung starten"
+        "name": "Kalibration starten"
       },
       "finish_calibration": {
-        "name": "Kalibrierung abschliessen"
+        "name": "Kalibration manuell abschliessen"
+      },
+      "start_idle_measurement": {
+        "name": "Automatische Leerlaufmessung starten"
       }
     }
   }
