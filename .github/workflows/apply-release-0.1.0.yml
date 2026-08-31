@@ -29,7 +29,8 @@ jobs:
           echo "889b9d9cc970b45e632719d9c741454383fbc204571bf146d7d4e9833a8ce869  /tmp/battery-charge-manager-0.1.0.tar.gz" | sha256sum --check
           tar -xzf /tmp/battery-charge-manager-0.1.0.tar.gz -C .
           rm -rf .release
-          rm -f .github/workflows/apply-release-0.1.0.yml
+          git restore --source=HEAD -- .github/workflows
+          git clean -fd .github/workflows
           find . -type d -name __pycache__ -prune -exec rm -rf {} +
       - name: Validate Python and JSON
         shell: bash
