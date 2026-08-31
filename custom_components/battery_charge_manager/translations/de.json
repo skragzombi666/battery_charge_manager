@@ -1,0 +1,126 @@
+{
+  "title": "Battery Charge Manager",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Battery Charge Manager",
+        "description": "Smart Plug und kumulativen Energiezähler für das Laden auswählen.",
+        "data": {
+          "switch_entity": "Ladeschalter",
+          "energy_sensor": "Energiezähler",
+          "power_sensor": "Leistungssensor (optional)",
+          "default_target": "Standard-Lagerladung",
+          "max_session_hours": "Maximale Ladedauer"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Battery Charge Manager ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Battery Charge Manager",
+        "menu_options": {
+          "global_settings": "Globale Einstellungen",
+          "add_battery": "Batterietyp hinzufügen",
+          "edit_battery": "Batterietyp bearbeiten",
+          "delete_battery": "Batterietyp löschen"
+        }
+      },
+      "global_settings": {
+        "title": "Globale Einstellungen",
+        "data": {
+          "switch_entity": "Ladeschalter",
+          "energy_sensor": "Energiezähler",
+          "power_sensor": "Leistungssensor (optional)",
+          "default_target": "Standard-Lagerladung",
+          "max_session_hours": "Maximale Ladedauer"
+        }
+      },
+      "add_battery": {
+        "title": "Batterietyp hinzufügen",
+        "data": {
+          "name": "Batteriename",
+          "nominal_capacity_mah": "Nennkapazität",
+          "technology": "Technischer Typ",
+          "form_factor": "Bauform",
+          "image": "Bild der Batterie"
+        }
+      },
+      "edit_battery": {
+        "title": "Batterietyp auswählen",
+        "data": {
+          "battery_id": "Batterietyp"
+        }
+      },
+      "edit_battery_details": {
+        "title": "Batterietyp bearbeiten",
+        "data": {
+          "name": "Batteriename",
+          "nominal_capacity_mah": "Nennkapazität",
+          "technology": "Technischer Typ",
+          "form_factor": "Bauform",
+          "image": "Bild der Batterie"
+        }
+      },
+      "delete_battery": {
+        "title": "Batterietyp löschen",
+        "description": "Beim Löschen eines Batterietyps werden auch alle zugehörigen Kalibrationswerte gelöscht.",
+        "data": {
+          "battery_id": "Batterietyp"
+        }
+      }
+    },
+    "error": {
+      "duplicate_name": "Ein Batterietyp mit diesem Namen existiert bereits."
+    }
+  },
+  "entity": {
+    "select": {
+      "battery_type": {
+        "name": "Batterietyp"
+      },
+      "quantity": {
+        "name": "Anzahl"
+      }
+    },
+    "number": {
+      "target_charge": {
+        "name": "Ziel-Lagerladung"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "target_energy": {
+        "name": "Zielenergie"
+      },
+      "delivered_energy": {
+        "name": "Geladene Energie"
+      },
+      "progress": {
+        "name": "Fortschritt"
+      },
+      "battery_info": {
+        "name": "Batterieinformationen"
+      }
+    },
+    "button": {
+      "start_charge": {
+        "name": "Laden starten"
+      },
+      "stop": {
+        "name": "Stoppen"
+      },
+      "start_calibration": {
+        "name": "Kalibrierung starten"
+      },
+      "finish_calibration": {
+        "name": "Kalibrierung abschliessen"
+      }
+    }
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "title": "Battery Charge Manager",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Battery Charge Manager",
+        "description": "Select the smart plug and cumulative energy sensor used for charging.",
+        "data": {
+          "switch_entity": "Charge switch",
+          "energy_sensor": "Energy sensor",
+          "power_sensor": "Power sensor (optional)",
+          "default_target": "Default storage charge",
+          "max_session_hours": "Maximum session duration"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Battery Charge Manager is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Battery Charge Manager",
+        "menu_options": {
+          "global_settings": "Global settings",
+          "add_battery": "Add battery type",
+          "edit_battery": "Edit battery type",
+          "delete_battery": "Delete battery type"
+        }
+      },
+      "global_settings": {
+        "title": "Global settings",
+        "data": {
+          "switch_entity": "Charge switch",
+          "energy_sensor": "Energy sensor",
+          "power_sensor": "Power sensor (optional)",
+          "default_target": "Default storage charge",
+          "max_session_hours": "Maximum session duration"
+        }
+      },
+      "add_battery": {
+        "title": "Add battery type",
+        "data": {
+          "name": "Battery name",
+          "nominal_capacity_mah": "Nominal capacity",
+          "technology": "Technology",
+          "form_factor": "Form factor",
+          "image": "Battery image"
+        }
+      },
+      "edit_battery": {
+        "title": "Select battery type",
+        "data": {
+          "battery_id": "Battery type"
+        }
+      },
+      "edit_battery_details": {
+        "title": "Edit battery type",
+        "data": {
+          "name": "Battery name",
+          "nominal_capacity_mah": "Nominal capacity",
+          "technology": "Technology",
+          "form_factor": "Form factor",
+          "image": "Battery image"
+        }
+      },
+      "delete_battery": {
+        "title": "Delete battery type",
+        "description": "Deleting a battery type also deletes all calibration values stored for it.",
+        "data": {
+          "battery_id": "Battery type"
+        }
+      }
+    },
+    "error": {
+      "duplicate_name": "A battery type with this name already exists."
+    }
+  },
+  "entity": {
+    "select": {
+      "battery_type": {
+        "name": "Battery type"
+      },
+      "quantity": {
+        "name": "Quantity"
+      }
+    },
+    "number": {
+      "target_charge": {
+        "name": "Storage charge target"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "target_energy": {
+        "name": "Target energy"
+      },
+      "delivered_energy": {
+        "name": "Delivered energy"
+      },
+      "progress": {
+        "name": "Progress"
+      },
+      "battery_info": {
+        "name": "Battery information"
+      }
+    },
+    "button": {
+      "start_charge": {
+        "name": "Start charging"
+      },
+      "stop": {
+        "name": "Stop"
+      },
+      "start_calibration": {
+        "name": "Start calibration"
+      },
+      "finish_calibration": {
+        "name": "Finish calibration"
+      }
+    }
+  }
+}
