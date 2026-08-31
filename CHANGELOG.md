@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.2
+
+HACS packaging and validation fixes.
+
+- Added integration issue tracker metadata required by HACS validation.
+- Added local brand icon for HACS/Home Assistant presentation.
+- Added automatic GitHub release workflow.
+- Added HACS and hassfest validation workflow.
+
 ## 0.0.1
 
 Initial development version.
