@@ -58,6 +58,8 @@ from .const import (
     DEFAULT_SETUP_NAME,
     DEFAULT_TARGET,
     DOMAIN,
+    IDLE_CORRECTION_APPLIED,
+    IDLE_CORRECTION_PENDING,
     IDLE_MODE_AUTOMATIC,
     IDLE_MODE_FIXED,
     PHASE_CONFIRMING_END,
@@ -645,15 +647,10 @@ class BatteryChargeManager:
         )
 
     async def async_start_calibration(self) -> None:
-        """Start automatic full-charge calibration."""
+        """Start automatic full-charge calibration with deferred correction."""
         self._ensure_idle()
         setup = self._require_setup()
         battery = self._require_battery()
-        idle = self.idle_summary(setup.setup_id)
-        if idle["reliable_count"] == 0:
-            raise HomeAssistantError(
-                "A reliable idle measurement is required before calibration"
-            )
         await self._async_begin_session(
             mode=SESSION_CALIBRATING,
             setup=setup,
@@ -675,9 +672,14 @@ class BatteryChargeManager:
         if mode not in {IDLE_MODE_FIXED, IDLE_MODE_AUTOMATIC}:
             raise HomeAssistantError("Invalid idle measurement mode")
         if mode == IDLE_MODE_FIXED:
-            duration_minutes = float(duration_minutes or DEFAULT_IDLE_FIXED_MINUTES)
-            if duration_minutes < 5 or duration_minutes > 24 * 60:
-                raise HomeAssistantError("Fixed duration must be 5 to 1440 minutes")
+            requested_duration = (
+                DEFAULT_IDLE_FIXED_MINUTES
+                if duration_minutes is None
+                else duration_minutes
+            )
+            duration_minutes = max(5.0, float(requested_duration))
+            if duration_minutes > 24 * 60:
+                raise HomeAssistantError("Fixed duration must be at most 1440 minutes")
         auto_min_minutes = max(10.0, float(auto_min_minutes))
         auto_max_minutes = max(auto_min_minutes, float(auto_max_minutes))
         await self._async_begin_session(
@@ -690,6 +692,179 @@ class BatteryChargeManager:
             auto_min_minutes=auto_min_minutes,
             auto_max_minutes=auto_max_minutes,
         )
+
+    async def async_reprocess_pending_calibrations(self, setup_id: str) -> int:
+        """Apply a newly available reliable baseline to pending records."""
+        corrected = self._reprocess_pending_calibrations(setup_id)
+        if corrected:
+            await self._async_save()
+            self._notify()
+        return corrected
+
+    def _reprocess_pending_calibrations(self, setup_id: str) -> int:
+        """Recalculate trace-backed pending calibrations for one revision."""
+        setup = self.setups.get(setup_id)
+        if setup is None:
+            return 0
+        idle = self.idle_summary(setup_id)
+        if not idle.get("reliable_count") or idle.get("baseline_power_w") is None:
+            return 0
+        baseline = float(idle["baseline_power_w"])
+        measurement_ids = list(idle.get("measurement_ids") or [])
+        quality = str(idle.get("quality") or QUALITY_NONE)
+        corrected = 0
+        for record in self.calibrations.values():
+            if (
+                record.setup_id != setup_id
+                or record.setup_revision != setup.revision
+                or record.idle_correction_status != IDLE_CORRECTION_PENDING
+                or not record.valid
+                or not record.samples
+            ):
+                continue
+            self._apply_idle_correction(
+                record,
+                baseline=baseline,
+                measurement_ids=measurement_ids,
+                quality=quality,
+            )
+            corrected += 1
+        return corrected
+
+    def _apply_idle_correction(
+        self,
+        record: CalibrationRecord,
+        *,
+        baseline: float,
+        measurement_ids: list[str],
+        quality: str,
+    ) -> None:
+        """Recalculate derived values while retaining the raw trace."""
+        record.analysis_history.append(
+            {
+                "analysis_revision": record.analysis_revision,
+                "analyzed_at": record.last_analyzed_at,
+                "idle_correction_status": record.idle_correction_status,
+                "idle_baseline_power_w": record.idle_baseline_power_w,
+                "idle_measurement_ids": list(record.idle_measurement_ids),
+                "gross_energy_wh": record.gross_energy_wh,
+                "idle_energy_wh": record.idle_energy_wh,
+                "net_energy_wh": record.net_energy_wh,
+                "charge_started_at": record.charge_started_at,
+                "charge_finished_at": record.charge_finished_at,
+                "charge_duration_seconds": record.charge_duration_seconds,
+                "end_method": record.end_method,
+                "confidence": record.confidence,
+                "algorithm_version": record.algorithm_version,
+            }
+        )
+        record.analysis_history = record.analysis_history[-10:]
+        samples = sorted(record.samples, key=lambda item: item.timestamp)
+        reference_at = record.switch_on_at or record.session_started_at
+        peak_net = 0.0
+        for sample in samples:
+            elapsed = self._seconds_between(reference_at, sample.timestamp)
+            sample.idle_energy_wh = max(0.0, baseline * elapsed / 3600.0)
+            sample.net_energy_wh = max(
+                0.0,
+                sample.gross_energy_wh - sample.idle_energy_wh,
+            )
+            sample.net_power_w = (
+                max(0.0, sample.power_w - baseline)
+                if sample.power_w is not None
+                else None
+            )
+            peak_net = max(peak_net, sample.net_power_w or 0.0)
+        record.samples = samples
+        start_sample = next(
+            (
+                item
+                for item in samples
+                if item.net_power_w is not None and item.net_power_w >= 0.35
+            ),
+            None,
+        )
+        if start_sample is None:
+            start_sample = next(
+                (item for item in samples if item.net_energy_wh >= 0.02),
+                samples[0],
+            )
+        charge_started_at = start_sample.timestamp
+        significance = max(0.15, peak_net * 0.05)
+        significant = [
+            item
+            for item in samples
+            if item.net_power_w is not None and item.net_power_w > significance
+        ]
+        endpoint = significant[-1] if significant else samples[-1]
+        endpoint_dt = self._parse_dt(endpoint.timestamp)
+        last_dt = self._parse_dt(samples[-1].timestamp)
+        confirmed = False
+        if endpoint_dt is not None and last_dt is not None and last_dt > endpoint_dt:
+            tail = [
+                item
+                for item in samples
+                if (self._parse_dt(item.timestamp) or endpoint_dt) >= endpoint_dt
+            ]
+            span = self._seconds_between(endpoint.timestamp, tail[-1].timestamp)
+            gain = max(0.0, tail[-1].net_energy_wh - endpoint.net_energy_wh)
+            average_power = gain / (span / 3600.0) if span > 0 else float("inf")
+            tolerance = max(0.05, endpoint.net_energy_wh * 0.01)
+            plateau_threshold = max(0.12, peak_net * 0.05)
+            confirmed = bool(
+                span >= DEFAULT_END_CONFIRM_MINUTES * 60
+                and gain <= tolerance
+                and average_power <= plateau_threshold
+            )
+        if not confirmed:
+            endpoint = self._record_sample_at_or_before(
+                samples,
+                record.charge_finished_at
+                or record.session_finished_at
+                or samples[-1].timestamp,
+            ) or samples[-1]
+        record.charge_started_at = charge_started_at
+        record.charge_finished_at = endpoint.timestamp
+        record.charge_duration_seconds = self._seconds_between(
+            charge_started_at,
+            endpoint.timestamp,
+        )
+        record.gross_energy_wh = endpoint.gross_energy_wh
+        record.idle_energy_wh = max(0.0, endpoint.idle_energy_wh)
+        record.net_energy_wh = max(0.0, endpoint.net_energy_wh)
+        record.idle_baseline_power_w = baseline
+        record.idle_measurement_ids = measurement_ids
+        record.idle_quality = quality
+        record.idle_correction_status = IDLE_CORRECTION_APPLIED
+        record.energy_at_detection_wh = samples[-1].net_energy_wh
+        record.peak_net_power_w = peak_net if peak_net > 0 else None
+        if confirmed:
+            record.candidate_end_at = endpoint.timestamp
+            record.end_method = "retrospective_idle_reanalysis"
+            record.confidence = (
+                CONFIDENCE_HIGH
+                if any(item.power_w is not None for item in samples)
+                else CONFIDENCE_MEDIUM
+            )
+        record.analysis_revision += 1
+        record.last_analyzed_at = self._now_iso()
+        record.algorithm_version = ALGORITHM_VERSION
+
+    @staticmethod
+    def _record_sample_at_or_before(
+        samples: list[MeasurementSample],
+        timestamp: str | None,
+    ) -> MeasurementSample | None:
+        """Return the last supplied trace point at or before a timestamp."""
+        target = BatteryChargeManager._parse_dt(timestamp)
+        if target is None:
+            return None
+        found = None
+        for sample in samples:
+            parsed = BatteryChargeManager._parse_dt(sample.timestamp)
+            if parsed is not None and parsed <= target:
+                found = sample
+        return found
 
     async def _async_begin_session(
         self,
@@ -715,6 +890,13 @@ class BatteryChargeManager:
             if mode == SESSION_IDLE_MEASURING
             else self.idle_summary(setup.setup_id)
         )
+        has_reliable_idle = bool(idle_summary.get("reliable_count"))
+        idle_baseline = (
+            float(idle_summary["baseline_power_w"])
+            if has_reliable_idle
+            and idle_summary.get("baseline_power_w") is not None
+            else None
+        )
         phase = (
             PHASE_IDLE_MEASUREMENT
             if mode == SESSION_IDLE_MEASURING
@@ -733,13 +915,17 @@ class BatteryChargeManager:
             target_percent=self.target_percent,
             target_energy_wh=target_energy_wh,
             last_raw_energy_wh=raw_energy,
-            idle_baseline_power_w=float(
-                idle_summary.get("baseline_power_w") or 0.0
+            idle_baseline_power_w=idle_baseline,
+            idle_measurement_ids=(
+                list(idle_summary.get("measurement_ids") or [])
+                if has_reliable_idle
+                else []
             ),
-            idle_measurement_ids=list(
-                idle_summary.get("measurement_ids") or []
+            idle_quality=(
+                str(idle_summary.get("quality") or QUALITY_NONE)
+                if has_reliable_idle
+                else QUALITY_NONE
             ),
-            idle_quality=str(idle_summary.get("quality") or QUALITY_NONE),
             session_started_at=now,
             last_sample_at=now,
             idle_measurement_mode=idle_mode,
@@ -961,7 +1147,7 @@ class BatteryChargeManager:
             baseline = (
                 0.0
                 if self.session.mode == SESSION_IDLE_MEASURING
-                else self.session.idle_baseline_power_w
+                else (self.session.idle_baseline_power_w or 0.0)
             )
             elapsed_from_switch = self._elapsed_seconds(
                 self.session.switch_on_at or self.session.session_started_at,
@@ -1355,7 +1541,8 @@ class BatteryChargeManager:
                 self.session.charge_started_at, endpoint_at
             )
             idle_baseline = self.session.idle_baseline_power_w
-            endpoint_idle = idle_baseline * max(
+            baseline_for_math = idle_baseline or 0.0
+            endpoint_idle = baseline_for_math * max(
                 0.0,
                 self._seconds_between(self.session.switch_on_at, endpoint_at),
             ) / 3600.0
@@ -1386,12 +1573,23 @@ class BatteryChargeManager:
                 idle_baseline_power_w=idle_baseline,
                 idle_measurement_ids=list(self.session.idle_measurement_ids),
                 idle_quality=self.session.idle_quality,
+                idle_correction_status=(
+                    IDLE_CORRECTION_APPLIED
+                    if idle_baseline is not None
+                    else IDLE_CORRECTION_PENDING
+                ),
+                analysis_revision=1,
+                last_analyzed_at=detected_at,
                 energy_at_detection_wh=self.session.net_energy_wh,
                 peak_power_w=self.session.peak_power_w,
                 peak_net_power_w=self.session.peak_net_power_w,
                 peak_temperature_c=self.session.peak_temperature_c,
                 end_method=method,
-                confidence=confidence,
+                confidence=(
+                    confidence
+                    if idle_baseline is not None
+                    else CONFIDENCE_LOW
+                ),
                 synchrony=self._estimate_synchrony(charge_duration),
                 valid=switch_off_confirmed,
                 invalid_reason=(
@@ -1468,6 +1666,8 @@ class BatteryChargeManager:
                 samples=list(self.session.samples),
             )
             self.idle_measurements[record.measurement_id] = record
+            if record.valid and record.reliable:
+                self._reprocess_pending_calibrations(setup.setup_id)
             self.session.switch_off_at = switch_off_at
             self.session.session_finished_at = switch_off_at
             self.session.phase = (
@@ -1650,7 +1850,7 @@ class BatteryChargeManager:
         battery = self.batteries.get(battery_id)
         if setup is None or battery is None:
             return self._empty_calibration_summary()
-        records = [
+        all_records = [
             item
             for item in self.calibrations.values()
             if item.setup_id == setup_id
@@ -1661,7 +1861,17 @@ class BatteryChargeManager:
             and item.valid
             and item.net_energy_wh > 0
         ]
-        records.sort(key=lambda item: item.session_started_at or "")
+        all_records.sort(key=lambda item: item.session_started_at or "")
+        pending = [
+            item
+            for item in all_records
+            if item.idle_correction_status != IDLE_CORRECTION_APPLIED
+        ]
+        records = [
+            item
+            for item in all_records
+            if item.idle_correction_status == IDLE_CORRECTION_APPLIED
+        ]
         trusted = [
             item
             for item in records
@@ -1727,7 +1937,9 @@ class BatteryChargeManager:
         )
         return {
             "count": len(used),
-            "total_current_count": len(records),
+            "total_current_count": len(all_records),
+            "pending_count": len(pending),
+            "applied_count": len(records),
             "trusted_count": len(trusted),
             "excluded_low_confidence_count": len(records) - len(used),
             "median_net_energy_wh": overall_median,
@@ -1742,9 +1954,11 @@ class BatteryChargeManager:
             "quality": quality,
             "outdated_count": outdated,
             "record_ids": [item.calibration_id for item in used],
-            "all_current_record_ids": [item.calibration_id for item in records],
+            "all_current_record_ids": [
+                item.calibration_id for item in all_records
+            ],
             "confidence_counts": {
-                level: sum(1 for item in records if item.confidence == level)
+                level: sum(1 for item in all_records if item.confidence == level)
                 for level in (CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIDENCE_LOW)
             },
         }
@@ -2256,6 +2470,8 @@ class BatteryChargeManager:
         return {
             "count": 0,
             "total_current_count": 0,
+            "pending_count": 0,
+            "applied_count": 0,
             "trusted_count": 0,
             "excluded_low_confidence_count": 0,
             "median_net_energy_wh": None,

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Calibrations can start without a reliable idle measurement and are stored with pending idle correction.
+- Pending trace-backed calibrations are recalculated automatically after a reliable idle measurement becomes available.
+- Focused form fields are no longer replaced by background Home Assistant or websocket updates.
+- Idle-measurement and settings number fields retain their draft values.
+- Fixed idle durations below five minutes are clamped to five minutes instead of being rejected or reset.
+
 ## 0.1.0
 
 Major measurement, calibration, and user-interface release.

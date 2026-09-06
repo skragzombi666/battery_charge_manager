@@ -37,7 +37,8 @@ const TEXT = {
     finishCalibration: "Manuell abschliessen",
     noBatteryIdle: "Für die Leerlaufmessung die vollständige Ladeanordnung einschalten, aber keine Akkus anschliessen.",
     calibrationHint: "Akkus mit vergleichbarem Ausgangsladezustand an die festgelegten ersten Anschlüsse anschliessen. Das tatsächliche Ladeende wird rückwirkend aus Energieplateau und – sofern vorhanden – Leistung erkannt.",
-    idleRequired: "Vor der Kalibration ist mindestens eine gültige Leerlaufmessung der aktuellen Ladeanordnung erforderlich.",
+    idleRequired: "Keine zuverlässige Leerlaufmessung vorhanden. Die Kalibration wird vorläufig als Bruttomessung gespeichert und nach einer zuverlässigen Leerlaufmessung automatisch korrigiert.",
+    pendingCorrection: "Leerlaufkorrektur ausstehend",
     save: "Speichern",
     cancel: "Abbrechen",
     name: "Name",
@@ -141,7 +142,8 @@ const TEXT = {
     finishCalibration: "Finish manually",
     noBatteryIdle: "Connect the complete charging setup, but do not connect any batteries during the idle measurement.",
     calibrationHint: "Connect batteries with comparable initial charge to the defined first ports. The actual endpoint is determined retrospectively from the energy plateau and, when available, power.",
-    idleRequired: "At least one valid idle measurement for the current setup is required before calibration.",
+    idleRequired: "No reliable idle measurement is available. The calibration is stored provisionally as a gross measurement and corrected automatically after a reliable idle measurement.",
+    pendingCorrection: "Idle correction pending",
     save: "Save",
     cancel: "Cancel",
     name: "Name",
@@ -268,6 +270,19 @@ const navigateToPanel = () => {
   }
 };
 
+const isEditingElement = (element) => Boolean(
+  element?.matches?.("input, select, textarea"),
+);
+
+const clampNumberValue = (value, minimum, maximum, fallback) => {
+  const parsed = Number(value);
+  const fallbackNumber = Number(fallback);
+  if (value === "" || value === null || value === undefined || !Number.isFinite(parsed)) {
+    return Number.isFinite(fallbackNumber) ? fallbackNumber : minimum;
+  }
+  return Math.min(maximum, Math.max(minimum, parsed));
+};
+
 const BASE_STYLE = `
   :host { display:block; color:var(--primary-text-color); }
   * { box-sizing:border-box; }
@@ -337,19 +352,39 @@ class BcmBase extends HTMLElement {
     this._subscribing = false;
     this._busy = false;
     this._error = "";
+    this._renderPending = false;
+    this.shadowRoot.addEventListener("focusout", () => {
+      queueMicrotask(() => this._flushDeferredRender());
+    });
   }
 
   set hass(value) {
     this._hass = value;
     this._connect();
-    this.render();
+    this._requestRender();
   }
 
   get hass() { return this._hass; }
 
   connectedCallback() {
     this._connect();
+    this._requestRender(true);
+  }
+
+  _requestRender(force = false) {
+    if (!force && isEditingElement(this.shadowRoot?.activeElement)) {
+      this._renderPending = true;
+      return false;
+    }
+    this._renderPending = false;
     this.render();
+    return true;
+  }
+
+  _flushDeferredRender() {
+    if (this._renderPending && !this.shadowRoot?.activeElement) {
+      this._requestRender(true);
+    }
   }
 
   disconnectedCallback() {
@@ -371,17 +406,17 @@ class BcmBase extends HTMLElement {
     this._subscribing = true;
     try {
       this._state = await this._hass.callWS({ type: `${BCM_DOMAIN}/get_state` });
-      this.render();
+      this._requestRender();
       this._unsub = await this._hass.connection.subscribeMessage(
         (event) => {
           this._state = event;
-          this.render();
+          this._requestRender();
         },
         { type: `${BCM_DOMAIN}/subscribe` },
       );
     } catch (err) {
       this._error = err?.message || String(err);
-      this.render();
+      this._requestRender();
     } finally {
       this._subscribing = false;
     }
@@ -401,7 +436,7 @@ class BcmBase extends HTMLElement {
       throw err;
     } finally {
       this._busy = false;
-      this.render();
+      this._requestRender();
     }
   }
 
@@ -428,6 +463,12 @@ class BatteryChargeManagerPanel extends BcmBase {
     this._tab = "charge";
     this._dialog = null;
     this._draft = {};
+    this._formValues = {
+      idleMin: 30,
+      idleMax: 480,
+      idleFixed: 300,
+      maxSession: null,
+    };
   }
 
   set panel(value) { this._panel = value; }
@@ -553,7 +594,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const active = s.session.mode === "idle_measuring";
     const rows = s.idle_measurements.filter((item) => item.setup_id === s.selected_setup_id);
     const baselineDisplay = summary.below_detection_count ? `&lt; ${fmt(summary.upper_bound_power_w,3)} W` : `${fmt(summary.baseline_power_w,3)} W`;
-    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("idle")}</h2>${this.selectSetupOnly()}<div class="bcm-note">${this.t("noBatteryIdle")}</div><div class="bcm-note" style="margin-top:8px">${this.t("automaticExplanation")}</div>${admin ? `<div class="bcm-form-grid"><div class="bcm-field"><label>${this.t("minMinutes")}</label><input id="idle-min" type="number" min="10" value="30"></div><div class="bcm-field"><label>${this.t("maxMinutes")}</label><input id="idle-max" type="number" min="30" value="480"></div><div class="bcm-field"><label>${this.t("durationMinutes")}</label><input id="idle-fixed" type="number" min="5" value="300"></div></div><div class="bcm-actions"><button class="bcm-btn" data-action="idle-auto" ${s.session.mode !== "idle" || this._busy ? "disabled" : ""}>${this.t("automaticIdle")}</button><button class="bcm-btn secondary" data-action="idle-fixed" ${s.session.mode !== "idle" || this._busy ? "disabled" : ""}>${this.t("fixedIdle")}</button><button class="bcm-btn danger" data-action="stop" ${!active ? "disabled" : ""}>${this.t("stop")}</button></div>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section><section class="bcm-card"><h2>${this.t("baseline")}</h2><div class="bcm-metrics">${this.metric(this.t("baseline"), baselineDisplay)}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("reliable"), String(summary.reliable_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p></section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.idleTable(rows, admin)}</section>`;
+    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("idle")}</h2>${this.selectSetupOnly()}<div class="bcm-note">${this.t("noBatteryIdle")}</div><div class="bcm-note" style="margin-top:8px">${this.t("automaticExplanation")}</div>${admin ? `<div class="bcm-form-grid"><div class="bcm-field"><label>${this.t("minMinutes")}</label><input id="idle-min" data-form-value="idleMin" type="number" min="10" max="1440" value="${esc(this._formValues.idleMin)}"></div><div class="bcm-field"><label>${this.t("maxMinutes")}</label><input id="idle-max" data-form-value="idleMax" type="number" min="30" max="1440" value="${esc(this._formValues.idleMax)}"></div><div class="bcm-field"><label>${this.t("durationMinutes")}</label><input id="idle-fixed" data-form-value="idleFixed" type="number" min="5" max="1440" value="${esc(this._formValues.idleFixed)}"></div></div><div class="bcm-actions"><button class="bcm-btn" data-action="idle-auto" ${s.session.mode !== "idle" || this._busy ? "disabled" : ""}>${this.t("automaticIdle")}</button><button class="bcm-btn secondary" data-action="idle-fixed" ${s.session.mode !== "idle" || this._busy ? "disabled" : ""}>${this.t("fixedIdle")}</button><button class="bcm-btn danger" data-action="stop" ${!active ? "disabled" : ""}>${this.t("stop")}</button></div>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section><section class="bcm-card"><h2>${this.t("baseline")}</h2><div class="bcm-metrics">${this.metric(this.t("baseline"), baselineDisplay)}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("reliable"), String(summary.reliable_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p></section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.idleTable(rows, admin)}</section>`;
   }
 
   selectSetupOnly() {
@@ -572,7 +613,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const idle = s.active_idle_summary || {};
     const active = s.session.mode === "calibrating";
     const rows = s.calibrations.filter((item) => item.setup_id === s.selected_setup_id && item.battery_id === s.selected_battery_id && item.quantity === s.selected_quantity);
-    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("calibrations")}</h2>${this.selectors()}<div class="bcm-note">${this.t("calibrationHint")}</div>${idle.reliable_count ? "" : `<div class="bcm-error" style="margin-top:10px">${this.t("idleRequired")}</div>`}${admin ? `<div class="bcm-actions"><button class="bcm-btn" data-action="start-calibration" ${s.session.mode !== "idle" || !idle.reliable_count || this._busy ? "disabled" : ""}>${this.t("startCalibration")}</button><button class="bcm-btn secondary" data-action="finish-calibration" ${!active || this._busy ? "disabled" : ""}>${this.t("finishCalibration")}</button><button class="bcm-btn danger" data-action="stop" ${!active ? "disabled" : ""}>${this.t("stop")}</button></div><p class="bcm-muted">${this.t("manualFallback")}</p>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section><section class="bcm-card"><h2>${this.t("quality")}</h2><div class="bcm-metrics">${this.metric(this.t("calibrationValue"), `${fmt(summary.median_net_energy_wh)} Wh`)}${this.metric(this.t("calibrationDuration"), fmtDuration(summary.median_charge_duration_seconds))}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}${this.metric(this.t("stdev"), `${fmt(summary.stdev_net_energy_wh,3)} Wh`)}${this.metric(this.t("drift"), `${fmt(summary.drift_percent,1)}%`)}${this.metric(this.t("trend"), esc(summary.trend || "not_assessable"))}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p>${this.linearModel()}</section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.calibrationTable(rows, admin)}</section>`;
+    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("calibrations")}</h2>${this.selectors()}<div class="bcm-note">${this.t("calibrationHint")}</div>${idle.reliable_count ? "" : `<div class="bcm-note" style="margin-top:10px">${this.t("idleRequired")}</div>`}${admin ? `<div class="bcm-actions"><button class="bcm-btn" data-action="start-calibration" ${s.session.mode !== "idle" || this._busy ? "disabled" : ""}>${this.t("startCalibration")}</button><button class="bcm-btn secondary" data-action="finish-calibration" ${!active || this._busy ? "disabled" : ""}>${this.t("finishCalibration")}</button><button class="bcm-btn danger" data-action="stop" ${!active ? "disabled" : ""}>${this.t("stop")}</button></div><p class="bcm-muted">${this.t("manualFallback")}</p>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section><section class="bcm-card"><h2>${this.t("quality")}</h2><div class="bcm-metrics">${this.metric(this.t("calibrationValue"), `${fmt(summary.median_net_energy_wh)} Wh`)}${this.metric(this.t("calibrationDuration"), fmtDuration(summary.median_charge_duration_seconds))}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("pendingCorrection"), String(summary.pending_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}${this.metric(this.t("stdev"), `${fmt(summary.stdev_net_energy_wh,3)} Wh`)}${this.metric(this.t("drift"), `${fmt(summary.drift_percent,1)}%`)}${this.metric(this.t("trend"), esc(summary.trend || "not_assessable"))}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p>${this.linearModel()}</section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.calibrationTable(rows, admin)}</section>`;
   }
 
   linearModel() {
@@ -583,12 +624,12 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   calibrationTable(rows, admin) {
     if (!rows.length) return `<div class="bcm-note">${this.t("noCalibration")}</div>`;
-    return `<div class="bcm-table-wrap"><table><thead><tr><th>${this.t("status")}</th><th>${this.t("net")}</th><th>${this.t("elapsed")}</th><th>${this.t("endpoint")}</th><th>${this.t("detected")}</th><th>${this.t("confidence")}</th><th>${this.t("method")}</th><th></th></tr></thead><tbody>${rows.map((item) => `<tr><td><span class="bcm-badge ${item.valid ? qualityClass(item.confidence) : "bad"}">${item.valid ? this.t("valid") : this.t("invalid")}</span></td><td>${fmt(item.net_energy_wh)} Wh</td><td>${fmtDuration(item.charge_duration_seconds)}</td><td>${fmtDate(item.charge_finished_at,this.language)}</td><td>${fmtDate(item.end_detected_at,this.language)}</td><td>${esc(item.confidence)}</td><td>${esc(item.end_method)}</td><td>${admin ? `<button class="bcm-btn secondary" data-validity="calibration" data-record="${esc(item.calibration_id)}" data-valid="${item.valid ? "false" : "true"}">${item.valid ? this.t("invalid") : this.t("valid")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+    return `<div class="bcm-table-wrap"><table><thead><tr><th>${this.t("status")}</th><th>${this.t("net")}</th><th>${this.t("elapsed")}</th><th>${this.t("endpoint")}</th><th>${this.t("detected")}</th><th>${this.t("confidence")}</th><th>${this.t("method")}</th><th></th></tr></thead><tbody>${rows.map((item) => `<tr><td><span class="bcm-badge ${item.valid ? qualityClass(item.confidence) : "bad"}">${item.valid ? (item.idle_correction_status === "pending" ? this.t("pendingCorrection") : this.t("valid")) : this.t("invalid")}</span></td><td>${fmt(item.net_energy_wh)} Wh</td><td>${fmtDuration(item.charge_duration_seconds)}</td><td>${fmtDate(item.charge_finished_at,this.language)}</td><td>${fmtDate(item.end_detected_at,this.language)}</td><td>${esc(item.confidence)}</td><td>${esc(item.end_method)}</td><td>${admin ? `<button class="bcm-btn secondary" data-validity="calibration" data-record="${esc(item.calibration_id)}" data-valid="${item.valid ? "false" : "true"}">${item.valid ? this.t("invalid") : this.t("valid")}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   renderSettings(admin) {
     const s = this._state;
-    return `<section class="bcm-card"><h2>${this.t("settings")}</h2><div class="bcm-note">${this.t("currentRevisionOnly")}</div>${admin ? `<div class="bcm-field"><label>${this.t("maxSession")}</label><input id="max-session" type="number" min="1" max="48" step="0.5" value="${esc(s.max_session_hours)}"></div><button class="bcm-btn" data-action="save-settings">${this.t("saveSettings")}</button>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section>`;
+    return `<section class="bcm-card"><h2>${this.t("settings")}</h2><div class="bcm-note">${this.t("currentRevisionOnly")}</div>${admin ? `<div class="bcm-field"><label>${this.t("maxSession")}</label><input id="max-session" data-form-value="maxSession" type="number" min="1" max="48" step="0.5" value="${esc(this._formValues.maxSession ?? s.max_session_hours)}"></div><button class="bcm-btn" data-action="save-settings">${this.t("saveSettings")}</button>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section>`;
   }
 
   renderDialog(admin) {
@@ -612,6 +653,12 @@ class BatteryChargeManagerPanel extends BcmBase {
   bindEvents() {
     this.shadowRoot.querySelectorAll("[data-tab]").forEach((el) => el.addEventListener("click", () => { this._tab = el.dataset.tab; this.render(); }));
     this.shadowRoot.querySelectorAll("[data-draft]").forEach((el) => el.addEventListener("input", () => { this._draft[el.dataset.draft] = el.value; }));
+    this.shadowRoot.querySelectorAll("[data-form-value]").forEach((el) => {
+      el.addEventListener("input", () => {
+        this._formValues[el.dataset.formValue] = el.value;
+      });
+      el.addEventListener("change", () => this.commitNumberInput(el));
+    });
     this.shadowRoot.querySelectorAll("[data-select]").forEach((el) => el.addEventListener("change", async () => {
       const key = el.dataset.select;
       const payload = key === "setup" ? { setup_id: el.value } : { battery_id: el.value };
@@ -639,10 +686,47 @@ class BatteryChargeManagerPanel extends BcmBase {
       if (action === "stop") await this.call("stop", { reason:"Stopped by user" });
       if (action === "start-calibration") await this.call("start_calibration");
       if (action === "finish-calibration") await this.call("finish_calibration");
-      if (action === "idle-auto") await this.call("start_idle_measurement", { mode:"automatic", auto_min_minutes:Number(this.shadowRoot.getElementById("idle-min")?.value || 30), auto_max_minutes:Number(this.shadowRoot.getElementById("idle-max")?.value || 480) });
-      if (action === "idle-fixed") await this.call("start_idle_measurement", { mode:"fixed", duration_minutes:Number(this.shadowRoot.getElementById("idle-fixed")?.value || 300) });
-      if (action === "save-settings") await this.call("set_settings", { max_session_hours:Number(this.shadowRoot.getElementById("max-session")?.value || 12) });
+      if (action === "idle-auto") {
+        const minimum = this.readNumberInput("idle-min", 30);
+        let maximum = this.readNumberInput("idle-max", 480);
+        if (maximum < minimum) {
+          maximum = minimum;
+          this._formValues.idleMax = maximum;
+          const field = this.shadowRoot.getElementById("idle-max");
+          if (field) field.value = String(maximum);
+        }
+        await this.call("start_idle_measurement", {
+          mode: "automatic",
+          auto_min_minutes: minimum,
+          auto_max_minutes: maximum,
+        });
+      }
+      if (action === "idle-fixed") await this.call("start_idle_measurement", {
+        mode: "fixed",
+        duration_minutes: this.readNumberInput("idle-fixed", 300),
+      });
+      if (action === "save-settings") await this.call("set_settings", {
+        max_session_hours: this.readNumberInput("max-session", 12),
+      });
     } catch (_err) {}
+  }
+
+  commitNumberInput(input, fallbackValue = undefined) {
+    const minimum = Number(input.min || Number.NEGATIVE_INFINITY);
+    const maximum = Number(input.max || Number.POSITIVE_INFINITY);
+    const key = input.dataset.formValue;
+    const stored = this._formValues[key];
+    const fallback = fallbackValue ?? (stored === "" || stored === null ? minimum : stored);
+    const value = clampNumberValue(input.value, minimum, maximum, fallback);
+    input.value = String(value);
+    this._formValues[key] = value;
+    return value;
+  }
+
+  readNumberInput(id, fallback) {
+    const input = this.shadowRoot.getElementById(id);
+    if (!input) return fallback;
+    return this.commitNumberInput(input, fallback);
   }
 
   normalizeDraft(type) {
@@ -733,3 +817,5 @@ if (!window.customCards.some((item) => item.type === "battery-charge-manager-car
     preview: true,
   });
 }
+
+export { BcmBase, clampNumberValue, isEditingElement };

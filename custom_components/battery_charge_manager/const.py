@@ -4,8 +4,8 @@ from __future__ import annotations
 
 DOMAIN = "battery_charge_manager"
 NAME = "Battery Charge Manager"
-VERSION = "0.1.0"
-ALGORITHM_VERSION = "0.1.0"
+VERSION = "0.1.1"
+ALGORITHM_VERSION = "0.1.1"
 
 PLATFORMS = ["sensor", "select", "number", "button"]
 
@@ -37,7 +37,7 @@ DEFAULT_CALIBRATION_ABSOLUTE_MAX_WH = 100.0
 DEFAULT_CALIBRATION_DRIFT_WARN_PERCENT = 10.0
 
 STORAGE_VERSION = 1
-DATA_SCHEMA_VERSION = 2
+DATA_SCHEMA_VERSION = 3
 STORAGE_KEY = f"{DOMAIN}.storage"
 
 SIGNAL_UPDATE = f"{DOMAIN}_update"
@@ -67,6 +67,9 @@ PHASE_IDLE_MEASUREMENT = "idle_measurement"
 
 IDLE_MODE_FIXED = "fixed"
 IDLE_MODE_AUTOMATIC = "automatic"
+
+IDLE_CORRECTION_PENDING = "pending"
+IDLE_CORRECTION_APPLIED = "applied"
 
 CONFIDENCE_HIGH = "high"
 CONFIDENCE_MEDIUM = "medium"
