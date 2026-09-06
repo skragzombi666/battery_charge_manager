@@ -56,19 +56,21 @@ class Release011RegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["battery"], self.battery)
 
     async def test_fixed_idle_duration_below_minimum_is_clamped(self) -> None:
-        captured = {}
+        for requested in (0, 1, 4.9):
+            with self.subTest(requested=requested):
+                captured = {}
 
-        async def fake_begin_session(**kwargs):
-            captured.update(kwargs)
+                async def fake_begin_session(**kwargs):
+                    captured.update(kwargs)
 
-        self.manager._async_begin_session = fake_begin_session
+                self.manager._async_begin_session = fake_begin_session
 
-        await self.manager.async_start_idle_measurement(
-            mode="fixed",
-            duration_minutes=1,
-        )
+                await self.manager.async_start_idle_measurement(
+                    mode="fixed",
+                    duration_minutes=requested,
+                )
 
-        self.assertEqual(captured["duration_minutes"], 5.0)
+                self.assertEqual(captured["duration_minutes"], 5.0)
 
     async def test_pending_calibration_is_corrected_after_reliable_idle_measurement(
         self,
