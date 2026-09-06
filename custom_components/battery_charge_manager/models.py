@@ -10,6 +10,7 @@ from .const import (
     ALGORITHM_VERSION,
     CONFIDENCE_UNKNOWN,
     DEFAULT_MAX_POWER_W,
+    IDLE_CORRECTION_APPLIED,
     IDLE_MODE_AUTOMATIC,
     PHASE_IDLE,
     SESSION_IDLE,
@@ -368,9 +369,13 @@ class CalibrationRecord:
     gross_energy_wh: float = 0.0
     idle_energy_wh: float = 0.0
     net_energy_wh: float = 0.0
-    idle_baseline_power_w: float = 0.0
+    idle_baseline_power_w: float | None = None
     idle_measurement_ids: list[str] = field(default_factory=list)
     idle_quality: str = "none"
+    idle_correction_status: str = IDLE_CORRECTION_APPLIED
+    analysis_revision: int = 1
+    last_analyzed_at: str | None = None
+    analysis_history: list[dict[str, Any]] = field(default_factory=list)
     energy_at_detection_wh: float | None = None
     peak_power_w: float | None = None
     peak_net_power_w: float | None = None
@@ -411,9 +416,17 @@ class CalibrationRecord:
             "gross_energy_wh": round(self.gross_energy_wh, 6),
             "idle_energy_wh": round(self.idle_energy_wh, 6),
             "net_energy_wh": round(self.net_energy_wh, 6),
-            "idle_baseline_power_w": round(self.idle_baseline_power_w, 6),
+            "idle_baseline_power_w": (
+                round(self.idle_baseline_power_w, 6)
+                if self.idle_baseline_power_w is not None
+                else None
+            ),
             "idle_measurement_ids": self.idle_measurement_ids,
             "idle_quality": self.idle_quality,
+            "idle_correction_status": self.idle_correction_status,
+            "analysis_revision": self.analysis_revision,
+            "last_analyzed_at": self.last_analyzed_at,
+            "analysis_history": self.analysis_history,
             "energy_at_detection_wh": self.energy_at_detection_wh,
             "peak_power_w": self.peak_power_w,
             "peak_net_power_w": self.peak_net_power_w,
@@ -462,13 +475,21 @@ class CalibrationRecord:
             gross_energy_wh=float(data.get("gross_energy_wh", 0.0)),
             idle_energy_wh=float(data.get("idle_energy_wh", 0.0)),
             net_energy_wh=float(data.get("net_energy_wh", 0.0)),
-            idle_baseline_power_w=float(
-                data.get("idle_baseline_power_w", 0.0)
+            idle_baseline_power_w=_float_or_none(
+                data.get("idle_baseline_power_w")
             ),
             idle_measurement_ids=[
                 str(item) for item in data.get("idle_measurement_ids", [])
             ],
             idle_quality=str(data.get("idle_quality", "none")),
+            idle_correction_status=str(
+                data.get("idle_correction_status", IDLE_CORRECTION_APPLIED)
+            ),
+            analysis_revision=_int_or(data.get("analysis_revision"), 1),
+            last_analyzed_at=data.get("last_analyzed_at"),
+            analysis_history=[
+                dict(item) for item in data.get("analysis_history", [])
+            ],
             energy_at_detection_wh=_float_or_none(
                 data.get("energy_at_detection_wh")
             ),
@@ -515,7 +536,7 @@ class ChargeSession:
     peak_power_w: float | None = None
     peak_net_power_w: float | None = None
     peak_temperature_c: float | None = None
-    idle_baseline_power_w: float = 0.0
+    idle_baseline_power_w: float | None = None
     idle_measurement_ids: list[str] = field(default_factory=list)
     idle_quality: str = "none"
     session_started_at: str | None = None
@@ -633,8 +654,8 @@ class ChargeSession:
             peak_temperature_c=_float_or_none(
                 data.get("peak_temperature_c")
             ),
-            idle_baseline_power_w=float(
-                data.get("idle_baseline_power_w", 0.0)
+            idle_baseline_power_w=_float_or_none(
+                data.get("idle_baseline_power_w")
             ),
             idle_measurement_ids=[
                 str(item) for item in data.get("idle_measurement_ids", [])
