@@ -672,10 +672,12 @@ class BatteryChargeManager:
         if mode not in {IDLE_MODE_FIXED, IDLE_MODE_AUTOMATIC}:
             raise HomeAssistantError("Invalid idle measurement mode")
         if mode == IDLE_MODE_FIXED:
-            duration_minutes = max(
-                5.0,
-                float(duration_minutes or DEFAULT_IDLE_FIXED_MINUTES),
+            requested_duration = (
+                DEFAULT_IDLE_FIXED_MINUTES
+                if duration_minutes is None
+                else duration_minutes
             )
+            duration_minutes = max(5.0, float(requested_duration))
             if duration_minutes > 24 * 60:
                 raise HomeAssistantError("Fixed duration must be at most 1440 minutes")
         auto_min_minutes = max(10.0, float(auto_min_minutes))
