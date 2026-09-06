@@ -25,22 +25,22 @@ jobs:
 
           path = Path("custom_components/battery_charge_manager/manager.py")
           content = path.read_text(encoding="utf-8")
-          old = '''        if mode == IDLE_MODE_FIXED:
-              duration_minutes = max(
-                  5.0,
-                  float(duration_minutes or DEFAULT_IDLE_FIXED_MINUTES),
-              )
-          '''
-          old = old.replace("              ", "            ").replace("          ", "        ", 1)
-          new = '''        if mode == IDLE_MODE_FIXED:
-              requested_duration = (
-                  DEFAULT_IDLE_FIXED_MINUTES
-                  if duration_minutes is None
-                  else duration_minutes
-              )
-              duration_minutes = max(5.0, float(requested_duration))
-          '''
-          new = new.replace("              ", "            ").replace("          ", "        ", 1)
+          old = (
+              "        if mode == IDLE_MODE_FIXED:\n"
+              "            duration_minutes = max(\n"
+              "                5.0,\n"
+              "                float(duration_minutes or DEFAULT_IDLE_FIXED_MINUTES),\n"
+              "            )\n"
+          )
+          new = (
+              "        if mode == IDLE_MODE_FIXED:\n"
+              "            requested_duration = (\n"
+              "                DEFAULT_IDLE_FIXED_MINUTES\n"
+              "                if duration_minutes is None\n"
+              "                else duration_minutes\n"
+              "            )\n"
+              "            duration_minutes = max(5.0, float(requested_duration))\n"
+          )
           if old not in content:
               if "requested_duration = (" in content:
                   print("Clamp fix already applied")
