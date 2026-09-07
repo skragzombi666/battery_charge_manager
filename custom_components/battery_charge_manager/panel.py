@@ -72,7 +72,11 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
         state["view_registered"] = True
     version = _integration_version()
     revision = _frontend_revision()
-    module_url = f"{FRONTEND_MODULE_URL}?v={version}-{revision}"
+    panel_element_name = f"{PANEL_ELEMENT_NAME}-r{revision}"
+    module_url = (
+        f"{FRONTEND_MODULE_URL}?v={version}-{revision}"
+        f"&panel={panel_element_name}"
+    )
     if not state.get("card_registered"):
         add_extra_js_url(hass, module_url)
         state["card_registered"] = True
@@ -86,7 +90,7 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
             "version": version,
             "card_element": CARD_ELEMENT_NAME,
             "_panel_custom": {
-                "name": PANEL_ELEMENT_NAME,
+                "name": panel_element_name,
                 "module_url": module_url,
                 "embed_iframe": False,
                 "trust_external": False,
