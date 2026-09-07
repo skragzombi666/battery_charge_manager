@@ -34,19 +34,13 @@ jobs:
 
           manager = Path("custom_components/battery_charge_manager/manager.py")
           text = manager.read_text(encoding="utf-8")
-          old = '''        raw_capacity = data.get("nominal_capacity_mah")
-          if raw_capacity in {None, ""}:
-              raise HomeAssistantError("Nominal capacity is required")
-          try:
-              nominal_capacity_mah = int(float(raw_capacity))
-          except (TypeError, ValueError) as err:
-              raise HomeAssistantError("Nominal capacity must be a number") from err
-          if nominal_capacity_mah <= 0:
-              raise HomeAssistantError("Nominal capacity must be greater than zero")
-          nominal_voltage_v = self._optional_positive_float(data.get("nominal_voltage_v"))
-          nominal_energy_wh = self._optional_positive_float(data.get("nominal_energy_wh"))
-          '''.replace("          ", "        ", 1)
-          new = '''        raw_capacity = data.get("nominal_capacity_mah")
+          start_marker = '        raw_capacity = data.get("nominal_capacity_mah")\n'
+          end_marker = '        if existing is None:\n'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit("manager capacity block not found")
+          new_block = '''        raw_capacity = data.get("nominal_capacity_mah")
           nominal_capacity_mah = None
           if raw_capacity not in {None, ""}:
               try:
@@ -61,8 +55,8 @@ jobs:
               raise HomeAssistantError(
                   "Nominal capacity or nominal energy is required"
               )
-          '''.replace("          ", "        ", 1)
-          text = replace_once(text, old, new, "manager capacity validation")
+          '''
+          text = text[:start] + new_block + text[end:]
           manager.write_text(text, encoding="utf-8")
 
           models = Path("custom_components/battery_charge_manager/models.py")
