@@ -46,7 +46,7 @@ const TEXT = {
     model: "Modell",
     capacity: "Nennkapazität (mAh)",
     voltage: "Nennspannung (Ausgangsspannung) (V)",
-    energy: "Nennenergie (Wh)",
+    energy: "Nennenergie (mWh)",
     technology: "Technischer Typ",
     formFactor: "Bauform",
     chargingMethod: "Ladeart",
@@ -169,7 +169,7 @@ const TEXT = {
     model: "Model",
     capacity: "Nominal capacity (mAh)",
     voltage: "Nominal voltage (output voltage) (V)",
-    energy: "Nominal energy (Wh)",
+    energy: "Nominal energy (mWh)",
     technology: "Technology",
     formFactor: "Form factor",
     chargingMethod: "Charging method",
@@ -815,7 +815,11 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   batteryItem(battery, admin) {
     const img = imageUrl(battery.image);
-    return `<div class="bcm-list-item"><div class="bcm-list-head"><div style="display:flex;gap:12px;align-items:center">${img ? `<img class="bcm-thumb" src="${esc(img)}">` : ""}<div><strong>${esc(battery.name)}</strong><div class="bcm-muted">${esc([battery.manufacturer,battery.model].filter(Boolean).join(" "))}</div><div class="bcm-muted">${esc(battery.technology)} · ${esc(battery.form_factor)} · ${battery.nominal_capacity_mah} mAh</div></div></div><span class="bcm-badge">${this.t("revision")} ${battery.revision}</span></div>${admin ? `<div class="bcm-actions"><button class="bcm-btn secondary" data-edit-battery="${esc(battery.battery_id)}">${this.t("edit")}</button><button class="bcm-btn danger" data-delete-battery="${esc(battery.battery_id)}">${this.t("delete")}</button></div>` : ""}</div>`;
+    const nominalSpecs = [
+      battery.nominal_capacity_mah !== null && battery.nominal_capacity_mah !== undefined ? `${battery.nominal_capacity_mah} mAh` : "",
+      battery.nominal_energy_wh !== null && battery.nominal_energy_wh !== undefined ? `${fmt(Number(battery.nominal_energy_wh) * 1000,0)} mWh` : "",
+    ].filter(Boolean).join(" · ") || "–";
+    return `<div class="bcm-list-item"><div class="bcm-list-head"><div style="display:flex;gap:12px;align-items:center">${img ? `<img class="bcm-thumb" src="${esc(img)}">` : ""}<div><strong>${esc(battery.name)}</strong><div class="bcm-muted">${esc([battery.manufacturer,battery.model].filter(Boolean).join(" "))}</div><div class="bcm-muted">${esc(battery.technology)} · ${esc(battery.form_factor)} · ${esc(nominalSpecs)}</div></div></div><span class="bcm-badge">${this.t("revision")} ${battery.revision}</span></div>${admin ? `<div class="bcm-actions"><button class="bcm-btn secondary" data-edit-battery="${esc(battery.battery_id)}">${this.t("edit")}</button><button class="bcm-btn danger" data-delete-battery="${esc(battery.battery_id)}">${this.t("delete")}</button></div>` : ""}</div>`;
   }
 
   renderSetups(admin) {
@@ -938,7 +942,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const d = this._draft;
     const dialogError = this._error ? `<div class="bcm-error bcm-dialog-error"><strong>${this.t("error")}:</strong> ${esc(this._error)}</div>` : "";
     if (this._dialog === "battery") {
-      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.battery_id ? this.t("edit") : this.t("addBattery")}</h2>${dialogError}<div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}${this.input("manufacturer",this.t("manufacturer"),d.manufacturer)}${this.input("model",this.t("model"),d.model)}${this.input("nominal_capacity_mah",this.t("capacity"),d.nominal_capacity_mah ?? "",true,"number")}${this.input("nominal_voltage_v",this.t("voltage"),d.nominal_voltage_v,"", "number", "0.01")}${this.input("nominal_energy_wh",this.t("energy"),d.nominal_energy_wh,"", "number", "0.01")}${this.selectField("technology",this.t("technology"),["Li-Ion USB-C","Li-Ion","LiFePO4","NiMH","NiCd","Other"],d.technology || "Li-Ion USB-C")}${this.selectField("form_factor",this.t("formFactor"),["AAA","AA","C","D","9V","18650","21700","Proprietary","Other"],d.form_factor || "AA")}${this.selectField("charging_method",this.t("chargingMethod"),["Integrated USB-C charger","External USB charger","Dedicated charger","Other"],d.charging_method || "Integrated USB-C charger")}${this.input("discharge_method",this.t("dischargeMethod"),d.discharge_method)}${this.input("rest_time_minutes",this.t("restTime"),d.rest_time_minutes ?? "","", "number", "1")}${this.imageField("battery",d.image)}</div>${this.textarea("starting_condition_notes",this.t("startingNotes"),d.starting_condition_notes)}${this.textarea("notes",this.t("notes"),d.notes)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-battery">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
+      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.battery_id ? this.t("edit") : this.t("addBattery")}</h2>${dialogError}<div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}${this.input("manufacturer",this.t("manufacturer"),d.manufacturer)}${this.input("model",this.t("model"),d.model)}${this.input("nominal_capacity_mah",this.t("capacity"),d.nominal_capacity_mah ?? "",false,"number")}${this.input("nominal_voltage_v",this.t("voltage"),d.nominal_voltage_v,"", "number", "0.01")}${this.input("nominal_energy_mwh",this.t("energy"),d.nominal_energy_mwh ?? (d.nominal_energy_wh === null || d.nominal_energy_wh === undefined ? "" : Number(d.nominal_energy_wh) * 1000),false,"number","1")}${this.selectField("technology",this.t("technology"),["Li-Ion USB-C","Li-Ion","LiFePO4","NiMH","NiCd","Other"],d.technology || "Li-Ion USB-C")}${this.selectField("form_factor",this.t("formFactor"),["AAA","AA","C","D","9V","18650","21700","Proprietary","Other"],d.form_factor || "AA")}${this.selectField("charging_method",this.t("chargingMethod"),["Integrated USB-C charger","External USB charger","Dedicated charger","Other"],d.charging_method || "Integrated USB-C charger")}${this.input("discharge_method",this.t("dischargeMethod"),d.discharge_method)}${this.input("rest_time_minutes",this.t("restTime"),d.rest_time_minutes ?? "","", "number", "1")}${this.imageField("battery",d.image)}</div>${this.textarea("starting_condition_notes",this.t("startingNotes"),d.starting_condition_notes)}${this.textarea("notes",this.t("notes"),d.notes)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-battery">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
     }
     if (this._dialog === "setup") {
       return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.setup_id ? this.t("edit") : this.t("addSetup")}</h2>${dialogError}<div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}<div class="bcm-field"><label>${this.t("switchEntity")}</label><select data-draft="switch_entity" required>${this.entityOptions("switch",d.switch_entity)}</select></div><div class="bcm-field"><label>${this.t("energySensor")}</label><select data-draft="energy_sensor" required>${this.entityOptions("energy",d.energy_sensor)}</select></div><div class="bcm-field"><label>${this.t("powerSensor")}</label><select data-draft="power_sensor">${this.entityOptions("power",d.power_sensor,true)}</select></div><div class="bcm-field"><label>${this.t("temperatureSensor")}</label><select data-draft="temperature_sensor">${this.entityOptions("temperature",d.temperature_sensor,true)}</select></div>${this.input("charger_model",this.t("chargerModel"),d.charger_model)}${this.input("cable_description",this.t("cable"),d.cable_description)}${this.input("port_labels",this.t("ports"),Array.isArray(d.port_labels) ? d.port_labels.join(", ") : (d.port_labels || "A, B, C, D"),true)}${this.input("max_power_w",this.t("maxPower"),d.max_power_w ?? 100,true,"number","0.1")}${this.input("max_temperature_c",this.t("maxTemperature"),d.max_temperature_c,"", "number", "0.1")}${this.imageField("setup",d.image)}</div>${this.textarea("description",this.t("description"),d.description)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-setup">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
@@ -1108,7 +1112,10 @@ class BatteryChargeManagerPanel extends BcmBase {
     if (type === "battery") {
       d.nominal_capacity_mah = d.nominal_capacity_mah === "" || d.nominal_capacity_mah === null || d.nominal_capacity_mah === undefined ? null : Number(d.nominal_capacity_mah);
       d.nominal_voltage_v = d.nominal_voltage_v === "" || d.nominal_voltage_v === undefined ? null : Number(d.nominal_voltage_v);
-      d.nominal_energy_wh = d.nominal_energy_wh === "" || d.nominal_energy_wh === undefined ? null : Number(d.nominal_energy_wh);
+      if (d.nominal_energy_mwh !== undefined) {
+        d.nominal_energy_wh = d.nominal_energy_mwh === "" || d.nominal_energy_mwh === null ? null : Number(d.nominal_energy_mwh) / 1000;
+      }
+      delete d.nominal_energy_mwh;
       d.rest_time_minutes = d.rest_time_minutes === "" || d.rest_time_minutes === undefined ? null : Number(d.rest_time_minutes);
     } else {
       d.power_sensor = d.power_sensor || null;

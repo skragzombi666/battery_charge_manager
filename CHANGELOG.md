@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+- Nominal capacity in mAh is no longer mandatory when nominal energy is available.
+- Nominal energy is entered in mWh in the UI (for example 3600 mWh) and remains stored internally in Wh.
+- Battery summaries show whichever nominal capacity/energy metadata is available.
+
 ## 0.1.5
 
 - Fixed stale Battery Charge Manager panel code surviving upgrades in long-lived Home Assistant browser/WebView sessions by registering a revision-specific custom element for each frontend build.

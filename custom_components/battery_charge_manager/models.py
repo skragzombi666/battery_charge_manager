@@ -85,7 +85,7 @@ class BatteryType:
 
     battery_id: str
     name: str
-    nominal_capacity_mah: int
+    nominal_capacity_mah: int | None
     technology: str
     form_factor: str
     manufacturer: str = ""
@@ -137,7 +137,11 @@ class BatteryType:
             name=str(data.get("name", "Battery")),
             manufacturer=str(data.get("manufacturer", "")),
             model=str(data.get("model", "")),
-            nominal_capacity_mah=_int_or(data.get("nominal_capacity_mah"), 1000),
+            nominal_capacity_mah=(
+                _int_or(data.get("nominal_capacity_mah"), 0)
+                if data.get("nominal_capacity_mah") not in {None, ""}
+                else None
+            ),
             nominal_voltage_v=_float_or_none(data.get("nominal_voltage_v")),
             nominal_energy_wh=_float_or_none(data.get("nominal_energy_wh")),
             technology=str(data.get("technology", "Other")),
