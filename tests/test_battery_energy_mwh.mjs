@@ -42,7 +42,7 @@ const source = resolve(
 );
 await import(`${pathToFileURL(source).href}?test=battery-energy-mwh`);
 
-test("battery form accepts nominal energy in mWh without mAh capacity", () => {
+test("battery form converts nominal energy from mWh and leaves mAh optional", () => {
   const Panel = customElements.get(
     [...customElements.registry.keys()].find((name) => name.startsWith("battery-charge-manager-panel")),
   );
@@ -51,7 +51,7 @@ test("battery form accepts nominal energy in mWh without mAh capacity", () => {
     name: "3600",
     nominal_capacity_mah: null,
     nominal_voltage_v: 1.5,
-    nominal_energy_wh: 3.6,
+    nominal_energy_wh: null,
     nominal_energy_mwh: 3600,
     technology: "Li-Ion USB-C",
     form_factor: "AA",
