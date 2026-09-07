@@ -21,6 +21,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Repair dialog test stub
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("tests/test_frontend.mjs")
+          content = path.read_text(encoding="utf-8")
+          old = '''class FakeDialogElement {
+            constructor() {
+              this.scrollTop = 0;
+            }
+          }
+          '''.replace("          ", "")
+          new = '''class FakeDialogElement {
+            constructor() {
+              this.scrollTop = 0;
+              this.listeners = new Map();
+            }
+
+            addEventListener(type, callback) {
+              this.listeners.set(type, callback);
+            }
+          }
+          '''.replace("          ", "")
+          if old in content:
+              path.write_text(content.replace(old, new, 1), encoding="utf-8")
+          elif "class FakeDialogElement" not in content or "this.listeners = new Map();" not in content.split("class FakeDialogElement", 1)[1].split("class ShadowRootStub", 1)[0]:
+              raise SystemExit("Expected FakeDialogElement test stub not found")
       - name: Apply 0.1.3
         run: python tools/apply_0_1_3.py
       - name: Compile Python
@@ -40,6 +67,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add custom_components CHANGELOG.md docs/version-0.1.3.md
+          git add custom_components CHANGELOG.md docs/version-0.1.3.md tests/test_frontend.mjs
           git commit -m "Implement Battery Charge Manager 0.1.3"
           git push
