@@ -464,16 +464,20 @@ class BatteryChargeManager:
         ):
             raise HomeAssistantError("A battery type with this name already exists")
         raw_capacity = data.get("nominal_capacity_mah")
-        if raw_capacity in {None, ""}:
-            raise HomeAssistantError("Nominal capacity is required")
-        try:
-            nominal_capacity_mah = int(float(raw_capacity))
-        except (TypeError, ValueError) as err:
-            raise HomeAssistantError("Nominal capacity must be a number") from err
-        if nominal_capacity_mah <= 0:
-            raise HomeAssistantError("Nominal capacity must be greater than zero")
+        nominal_capacity_mah = None
+        if raw_capacity not in {None, ""}:
+            try:
+                nominal_capacity_mah = int(float(raw_capacity))
+            except (TypeError, ValueError) as err:
+                raise HomeAssistantError("Nominal capacity must be a number") from err
+            if nominal_capacity_mah <= 0:
+                raise HomeAssistantError("Nominal capacity must be greater than zero")
         nominal_voltage_v = self._optional_positive_float(data.get("nominal_voltage_v"))
         nominal_energy_wh = self._optional_positive_float(data.get("nominal_energy_wh"))
+        if nominal_capacity_mah is None and nominal_energy_wh is None:
+            raise HomeAssistantError(
+                "Nominal capacity or nominal energy is required"
+            )
         if existing is None:
             battery = BatteryType(
                 battery_id=battery_id,
