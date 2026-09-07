@@ -45,7 +45,7 @@ const TEXT = {
     manufacturer: "Hersteller",
     model: "Modell",
     capacity: "Nennkapazität (mAh)",
-    voltage: "Nennspannung (V)",
+    voltage: "Nennspannung (Ausgangsspannung) (V)",
     energy: "Nennenergie (Wh)",
     technology: "Technischer Typ",
     formFactor: "Bauform",
@@ -54,6 +54,9 @@ const TEXT = {
     restTime: "Ruhezeit vor dem Laden (Minuten)",
     startingNotes: "Definierter Ausgangszustand / Hinweise",
     image: "Bild-URL oder /local-Pfad",
+    uploadImage: "Bild hochladen",
+    removeImage: "Bild entfernen",
+    uploadingImage: "Bild wird hochgeladen …",
     notes: "Notizen",
     switchEntity: "Smart Plug / Switch",
     energySensor: "Kumulativer Energiesensor",
@@ -165,7 +168,7 @@ const TEXT = {
     manufacturer: "Manufacturer",
     model: "Model",
     capacity: "Nominal capacity (mAh)",
-    voltage: "Nominal voltage (V)",
+    voltage: "Nominal voltage (output voltage) (V)",
     energy: "Nominal energy (Wh)",
     technology: "Technology",
     formFactor: "Form factor",
@@ -174,6 +177,9 @@ const TEXT = {
     restTime: "Rest time before charging (minutes)",
     startingNotes: "Defined initial condition / notes",
     image: "Image URL or /local path",
+    uploadImage: "Upload image",
+    removeImage: "Remove image",
+    uploadingImage: "Uploading image …",
     notes: "Notes",
     switchEntity: "Smart plug / switch",
     energySensor: "Cumulative energy sensor",
@@ -520,6 +526,9 @@ const BASE_STYLE = `
   .bcm-chart-legend i.power { background:var(--primary-color); }
   .bcm-chart-legend i.energy { background:var(--warning-color,#f9a825); }
   .bcm-chart-empty { margin-top:14px; padding:18px; text-align:center; border:1px dashed var(--divider-color); border-radius:12px; color:var(--secondary-text-color); }
+  .bcm-image-preview { width:100%; max-height:220px; object-fit:contain; border-radius:10px; background:var(--secondary-background-color); margin-bottom:8px; }
+  .bcm-file-btn { display:inline-flex; align-items:center; }
+  .bcm-file-btn input { display:none; }
   @media (max-width:600px) { .bcm-shell { padding:12px; } .bcm-title { font-size:23px; } .bcm-card { padding:13px; } }
 `;
 
@@ -534,6 +543,7 @@ class BcmBase extends HTMLElement {
     this._busy = false;
     this._error = "";
     this._renderPending = false;
+    this._renderLock = 0;
     this.shadowRoot.addEventListener("focusout", () => {
       queueMicrotask(() => this._flushDeferredRender());
     });
@@ -553,6 +563,10 @@ class BcmBase extends HTMLElement {
   }
 
   _requestRender(force = false) {
+    if (!force && this._renderLock > 0) {
+      this._renderPending = true;
+      return false;
+    }
     if (!force && isEditingElement(this.shadowRoot?.activeElement)) {
       this._renderPending = true;
       return false;
@@ -603,11 +617,11 @@ class BcmBase extends HTMLElement {
     }
   }
 
-  async call(type, payload = {}) {
+  async call(type, payload = {}, options = {}) {
     if (!this._hass || this._busy) return null;
     this._busy = true;
     this._error = "";
-    this.render();
+    if (options.renderBusy !== false) this._requestRender();
     try {
       const result = await this._hass.callWS({ type: `${BCM_DOMAIN}/${type}`, ...payload });
       this._state = await this._hass.callWS({ type: `${BCM_DOMAIN}/get_state` });
@@ -617,7 +631,7 @@ class BcmBase extends HTMLElement {
       throw err;
     } finally {
       this._busy = false;
-      this._requestRender();
+      if (options.renderDone !== false) this._requestRender();
     }
   }
 
@@ -645,6 +659,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     this._dialog = null;
     this._draft = {};
     this._tabsScrollLeft = 0;
+    this._dialogScrollTop = 0;
     this._formValues = {
       idleMin: 30,
       idleMax: 480,
@@ -661,6 +676,8 @@ class BatteryChargeManagerPanel extends BcmBase {
     const admin = Boolean(this._hass?.user?.is_admin);
     const previousTabs = this.shadowRoot.querySelector(".bcm-tabs");
     const tabsScrollLeft = previousTabs?.scrollLeft ?? this._tabsScrollLeft ?? 0;
+    const previousDialog = this.shadowRoot.querySelector(".bcm-dialog");
+    const dialogScrollTop = previousDialog?.scrollTop ?? this._dialogScrollTop ?? 0;
     this.shadowRoot.innerHTML = `
       <style>${BASE_STYLE}</style>
       <div class="bcm-shell">
@@ -686,6 +703,12 @@ class BatteryChargeManagerPanel extends BcmBase {
       tabs.scrollLeft = tabsScrollLeft;
       this._tabsScrollLeft = tabsScrollLeft;
       tabs.addEventListener("scroll", () => { this._tabsScrollLeft = tabs.scrollLeft; });
+    }
+    const dialog = this.shadowRoot.querySelector(".bcm-dialog");
+    if (dialog) {
+      dialog.scrollTop = dialogScrollTop;
+      this._dialogScrollTop = dialogScrollTop;
+      dialog.addEventListener("scroll", () => { this._dialogScrollTop = dialog.scrollTop; });
     }
     this.bindEvents();
   }
@@ -802,7 +825,8 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   setupItem(setup, admin) {
     const idle = setup.idle_summary || {};
-    return `<div class="bcm-list-item"><div class="bcm-list-head"><div><strong>${esc(setup.name)}</strong><div class="bcm-muted">${esc(setup.switch_entity)} · ${esc(setup.energy_sensor)}${setup.power_sensor ? ` · ${esc(setup.power_sensor)}` : ""}${setup.temperature_sensor ? ` · ${esc(setup.temperature_sensor)}` : ""}</div><div class="bcm-muted">${esc((setup.port_labels || []).join(" / "))}</div></div><span class="bcm-badge">${this.t("revision")} ${setup.revision}</span></div><div class="bcm-row"><span>${this.t("baseline")}</span><strong>${idle.below_detection_count ? `&lt; ${fmt(idle.upper_bound_power_w,3)} W` : `${fmt(idle.baseline_power_w,3)} W`} <span class="bcm-badge ${qualityClass(idle.quality)}">${esc(idle.quality || "none")}</span></strong></div>${admin ? `<div class="bcm-actions"><button class="bcm-btn secondary" data-edit-setup="${esc(setup.setup_id)}">${this.t("edit")}</button><button class="bcm-btn danger" data-delete-setup="${esc(setup.setup_id)}" ${this._state.setups.length <= 1 ? "disabled" : ""}>${this.t("delete")}</button></div>` : ""}</div>`;
+    const img = imageUrl(setup.image);
+    return `<div class="bcm-list-item"><div class="bcm-list-head"><div style="display:flex;gap:12px;align-items:center">${img ? `<img class="bcm-thumb" src="${esc(img)}">` : ""}<div><strong>${esc(setup.name)}</strong><div class="bcm-muted">${esc(setup.switch_entity)} · ${esc(setup.energy_sensor)}${setup.power_sensor ? ` · ${esc(setup.power_sensor)}` : ""}${setup.temperature_sensor ? ` · ${esc(setup.temperature_sensor)}` : ""}</div><div class="bcm-muted">${esc((setup.port_labels || []).join(" / "))}</div></div></div><span class="bcm-badge">${this.t("revision")} ${setup.revision}</span></div><div class="bcm-row"><span>${this.t("baseline")}</span><strong>${idle.below_detection_count ? `&lt; ${fmt(idle.upper_bound_power_w,3)} W` : `${fmt(idle.baseline_power_w,3)} W`} <span class="bcm-badge ${qualityClass(idle.quality)}">${esc(idle.quality || "none")}</span></strong></div>${admin ? `<div class="bcm-actions"><button class="bcm-btn secondary" data-edit-setup="${esc(setup.setup_id)}">${this.t("edit")}</button><button class="bcm-btn danger" data-delete-setup="${esc(setup.setup_id)}" ${this._state.setups.length <= 1 ? "disabled" : ""}>${this.t("delete")}</button></div>` : ""}</div>`;
   }
 
   renderIdle(admin) {
@@ -913,10 +937,10 @@ class BatteryChargeManagerPanel extends BcmBase {
     if (!this._dialog || !admin) return "";
     const d = this._draft;
     if (this._dialog === "battery") {
-      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.battery_id ? this.t("edit") : this.t("addBattery")}</h2><div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}${this.input("manufacturer",this.t("manufacturer"),d.manufacturer)}${this.input("model",this.t("model"),d.model)}${this.input("nominal_capacity_mah",this.t("capacity"),d.nominal_capacity_mah ?? 1000,true,"number")}${this.input("nominal_voltage_v",this.t("voltage"),d.nominal_voltage_v,"", "number", "0.01")}${this.input("nominal_energy_wh",this.t("energy"),d.nominal_energy_wh,"", "number", "0.01")}${this.selectField("technology",this.t("technology"),["Li-Ion USB-C","Li-Ion","LiFePO4","NiMH","NiCd","Other"],d.technology || "Li-Ion USB-C")}${this.selectField("form_factor",this.t("formFactor"),["AAA","AA","C","D","9V","18650","21700","Proprietary","Other"],d.form_factor || "AA")}${this.selectField("charging_method",this.t("chargingMethod"),["Integrated USB-C charger","External USB charger","Dedicated charger","Other"],d.charging_method || "Integrated USB-C charger")}${this.input("discharge_method",this.t("dischargeMethod"),d.discharge_method)}${this.input("rest_time_minutes",this.t("restTime"),d.rest_time_minutes,"", "number", "1")}${this.input("image",this.t("image"),typeof d.image === "string" ? d.image : "")}</div>${this.textarea("starting_condition_notes",this.t("startingNotes"),d.starting_condition_notes)}${this.textarea("notes",this.t("notes"),d.notes)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-battery">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
+      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.battery_id ? this.t("edit") : this.t("addBattery")}</h2><div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}${this.input("manufacturer",this.t("manufacturer"),d.manufacturer)}${this.input("model",this.t("model"),d.model)}${this.input("nominal_capacity_mah",this.t("capacity"),d.nominal_capacity_mah ?? "",true,"number")}${this.input("nominal_voltage_v",this.t("voltage"),d.nominal_voltage_v,"", "number", "0.01")}${this.input("nominal_energy_wh",this.t("energy"),d.nominal_energy_wh,"", "number", "0.01")}${this.selectField("technology",this.t("technology"),["Li-Ion USB-C","Li-Ion","LiFePO4","NiMH","NiCd","Other"],d.technology || "Li-Ion USB-C")}${this.selectField("form_factor",this.t("formFactor"),["AAA","AA","C","D","9V","18650","21700","Proprietary","Other"],d.form_factor || "AA")}${this.selectField("charging_method",this.t("chargingMethod"),["Integrated USB-C charger","External USB charger","Dedicated charger","Other"],d.charging_method || "Integrated USB-C charger")}${this.input("discharge_method",this.t("dischargeMethod"),d.discharge_method)}${this.input("rest_time_minutes",this.t("restTime"),d.rest_time_minutes ?? "","", "number", "1")}${this.imageField("battery",d.image)}</div>${this.textarea("starting_condition_notes",this.t("startingNotes"),d.starting_condition_notes)}${this.textarea("notes",this.t("notes"),d.notes)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-battery">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
     }
     if (this._dialog === "setup") {
-      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.setup_id ? this.t("edit") : this.t("addSetup")}</h2><div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}<div class="bcm-field"><label>${this.t("switchEntity")}</label><select data-draft="switch_entity" required>${this.entityOptions("switch",d.switch_entity)}</select></div><div class="bcm-field"><label>${this.t("energySensor")}</label><select data-draft="energy_sensor" required>${this.entityOptions("energy",d.energy_sensor)}</select></div><div class="bcm-field"><label>${this.t("powerSensor")}</label><select data-draft="power_sensor">${this.entityOptions("power",d.power_sensor,true)}</select></div><div class="bcm-field"><label>${this.t("temperatureSensor")}</label><select data-draft="temperature_sensor">${this.entityOptions("temperature",d.temperature_sensor,true)}</select></div>${this.input("charger_model",this.t("chargerModel"),d.charger_model)}${this.input("cable_description",this.t("cable"),d.cable_description)}${this.input("port_labels",this.t("ports"),Array.isArray(d.port_labels) ? d.port_labels.join(", ") : (d.port_labels || "A, B, C, D"),true)}${this.input("max_power_w",this.t("maxPower"),d.max_power_w ?? 100,true,"number","0.1")}${this.input("max_temperature_c",this.t("maxTemperature"),d.max_temperature_c,"", "number", "0.1")}</div>${this.textarea("description",this.t("description"),d.description)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-setup">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
+      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.setup_id ? this.t("edit") : this.t("addSetup")}</h2><div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}<div class="bcm-field"><label>${this.t("switchEntity")}</label><select data-draft="switch_entity" required>${this.entityOptions("switch",d.switch_entity)}</select></div><div class="bcm-field"><label>${this.t("energySensor")}</label><select data-draft="energy_sensor" required>${this.entityOptions("energy",d.energy_sensor)}</select></div><div class="bcm-field"><label>${this.t("powerSensor")}</label><select data-draft="power_sensor">${this.entityOptions("power",d.power_sensor,true)}</select></div><div class="bcm-field"><label>${this.t("temperatureSensor")}</label><select data-draft="temperature_sensor">${this.entityOptions("temperature",d.temperature_sensor,true)}</select></div>${this.input("charger_model",this.t("chargerModel"),d.charger_model)}${this.input("cable_description",this.t("cable"),d.cable_description)}${this.input("port_labels",this.t("ports"),Array.isArray(d.port_labels) ? d.port_labels.join(", ") : (d.port_labels || "A, B, C, D"),true)}${this.input("max_power_w",this.t("maxPower"),d.max_power_w ?? 100,true,"number","0.1")}${this.input("max_temperature_c",this.t("maxTemperature"),d.max_temperature_c,"", "number", "0.1")}${this.imageField("setup",d.image)}</div>${this.textarea("description",this.t("description"),d.description)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-setup">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
     }
     return "";
   }
@@ -924,12 +948,19 @@ class BatteryChargeManagerPanel extends BcmBase {
   input(key, label, value = "", required = false, type = "text", step = "1") {
     return `<div class="bcm-field"><label>${label}</label><input data-draft="${key}" type="${type}" step="${step}" value="${esc(value ?? "")}" ${required ? "required" : ""}></div>`;
   }
+  imageField(kind, image) {
+    const url = imageUrl(image);
+    const textValue = typeof image === "string" ? image : (image?.url || image?.media_content_id || "");
+    return `<div class="bcm-field"><label>${this.t("image")}</label>${url ? `<img class="bcm-image-preview" src="${esc(url)}">` : ""}<input data-draft="image" type="text" value="${esc(textValue)}"><div class="bcm-actions"><label class="bcm-btn secondary bcm-file-btn">${this.t("uploadImage")}<input data-image-upload="${kind}" type="file" accept="image/jpeg,image/png,image/webp"></label>${url ? `<button type="button" class="bcm-btn secondary" data-remove-image>${this.t("removeImage")}</button>` : ""}</div></div>`;
+  }
   textarea(key,label,value="") { return `<div class="bcm-field"><label>${label}</label><textarea data-draft="${key}">${esc(value || "")}</textarea></div>`; }
   selectField(key,label,options,value) { return `<div class="bcm-field"><label>${label}</label><select data-draft="${key}">${options.map((item) => `<option value="${esc(item)}" ${item === value ? "selected" : ""}>${esc(item)}</option>`).join("")}</select></div>`; }
 
   bindEvents() {
     this.shadowRoot.querySelectorAll("[data-tab]").forEach((el) => el.addEventListener("click", () => { this._tab = el.dataset.tab; this.render(); }));
     this.shadowRoot.querySelectorAll("[data-draft]").forEach((el) => el.addEventListener("input", () => { this._draft[el.dataset.draft] = el.value; }));
+    this.shadowRoot.querySelectorAll("[data-image-upload]").forEach((el) => el.addEventListener("change", () => this.handleImageUpload(el)));
+    this.shadowRoot.querySelectorAll("[data-remove-image]").forEach((el) => el.addEventListener("click", () => { this._draft.image = ""; this._dialogScrollTop = this.shadowRoot.querySelector(".bcm-dialog")?.scrollTop || 0; this.render(); }));
     this.shadowRoot.querySelectorAll("[data-form-value]").forEach((el) => {
       el.addEventListener("input", () => {
         this._formValues[el.dataset.formValue] = el.value;
@@ -944,8 +975,8 @@ class BatteryChargeManagerPanel extends BcmBase {
     this.shadowRoot.querySelectorAll("[data-quantity]").forEach((el) => el.addEventListener("click", async () => { try { await this.call("select", { quantity: Number(el.dataset.quantity) }); } catch (_err) {} }));
     const target = this.shadowRoot.querySelector("[data-target]");
     if (target) target.addEventListener("change", async () => { try { await this.call("select", { target_percent: Number(target.value) }); } catch (_err) {} });
-    this.shadowRoot.querySelectorAll("[data-edit-battery]").forEach((el) => el.addEventListener("click", () => { const item = this._state.batteries.find((x) => x.battery_id === el.dataset.editBattery); this._draft = structuredClone(item || {}); this._dialog = "battery"; this.render(); }));
-    this.shadowRoot.querySelectorAll("[data-edit-setup]").forEach((el) => el.addEventListener("click", () => { const item = this._state.setups.find((x) => x.setup_id === el.dataset.editSetup); this._draft = structuredClone(item || {}); this._dialog = "setup"; this.render(); }));
+    this.shadowRoot.querySelectorAll("[data-edit-battery]").forEach((el) => el.addEventListener("click", () => { const item = this._state.batteries.find((x) => x.battery_id === el.dataset.editBattery); this._draft = structuredClone(item || {}); this._dialog = "battery"; this._dialogScrollTop = 0; this.render(); }));
+    this.shadowRoot.querySelectorAll("[data-edit-setup]").forEach((el) => el.addEventListener("click", () => { const item = this._state.setups.find((x) => x.setup_id === el.dataset.editSetup); this._draft = structuredClone(item || {}); this._dialog = "setup"; this._dialogScrollTop = 0; this.render(); }));
     this.shadowRoot.querySelectorAll("[data-delete-battery]").forEach((el) => el.addEventListener("click", async () => { if (confirm(this.t("confirmDelete"))) { try { await this.call("delete_battery", { battery_id: el.dataset.deleteBattery }); } catch (_err) {} } }));
     this.shadowRoot.querySelectorAll("[data-delete-setup]").forEach((el) => el.addEventListener("click", async () => { if (confirm(this.t("confirmDelete"))) { try { await this.call("delete_setup", { setup_id: el.dataset.deleteSetup }); } catch (_err) {} } }));
     this.shadowRoot.querySelectorAll("[data-validity]").forEach((el) => el.addEventListener("click", async () => { try { await this.call("set_measurement_validity", { record_type: el.dataset.validity, record_id: el.dataset.record, valid: el.dataset.valid === "true", reason: el.dataset.valid === "true" ? "" : "Invalidated in panel" }); } catch (_err) {} }));
@@ -954,11 +985,11 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   async handleAction(action) {
     try {
-      if (action === "new-battery") { this._draft = {}; this._dialog = "battery"; this.render(); return; }
-      if (action === "new-setup") { this._draft = { port_labels:["A","B","C","D"], max_power_w:100 }; this._dialog = "setup"; this.render(); return; }
-      if (action === "close-dialog") { this._dialog = null; this._draft = {}; this.render(); return; }
-      if (action === "save-battery") { await this.call("save_battery", { data: this.normalizeDraft("battery") }); this._dialog = null; this._draft = {}; return; }
-      if (action === "save-setup") { await this.call("save_setup", { data: this.normalizeDraft("setup") }); this._dialog = null; this._draft = {}; return; }
+      if (action === "new-battery") { this._draft = {}; this._dialog = "battery"; this._dialogScrollTop = 0; this.render(); return; }
+      if (action === "new-setup") { this._draft = { port_labels:["A","B","C","D"], max_power_w:100 }; this._dialog = "setup"; this._dialogScrollTop = 0; this.render(); return; }
+      if (action === "close-dialog") { this._dialog = null; this._draft = {}; this._dialogScrollTop = 0; this.render(); return; }
+      if (action === "save-battery") { await this.saveDialog("battery", "save_battery"); return; }
+      if (action === "save-setup") { await this.saveDialog("setup", "save_setup"); return; }
       if (action === "start-charge") await this.call("start_charge");
       if (action === "stop") await this.call("stop", { reason:"Stopped by user" });
       if (action === "start-calibration") await this.call("start_calibration");
@@ -988,6 +1019,71 @@ class BatteryChargeManagerPanel extends BcmBase {
     } catch (_err) {}
   }
 
+  async saveDialog(kind, command) {
+    this._renderLock += 1;
+    const button = this.shadowRoot.querySelector(`[data-action="save-${kind}"]`);
+    if (button) button.disabled = true;
+    try {
+      await this.call(command, { data: this.normalizeDraft(kind) }, { renderBusy:false, renderDone:false });
+      this._dialog = null;
+      this._draft = {};
+      this._dialogScrollTop = 0;
+    } finally {
+      this._renderLock = Math.max(0, this._renderLock - 1);
+      this._requestRender(true);
+    }
+  }
+
+  async handleImageUpload(input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    this._renderLock += 1;
+    try {
+      const prepared = await this.prepareImageFile(file);
+      const data = await this.fileToBase64(prepared);
+      const result = await this.call("upload_image", {
+        filename: prepared.name || file.name || "image",
+        mime_type: prepared.type,
+        data,
+      }, { renderBusy:false, renderDone:false });
+      if (result?.path) this._draft.image = result.path;
+    } catch (err) {
+      this._error = err?.message || String(err);
+    } finally {
+      this._renderLock = Math.max(0, this._renderLock - 1);
+      this._requestRender(true);
+    }
+  }
+
+  async prepareImageFile(file) {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowed.includes(file.type)) throw new Error("Unsupported image type");
+    if (file.size <= 1800000) return file;
+    if (typeof createImageBitmap !== "function" || typeof document === "undefined") {
+      throw new Error("Image is too large; choose an image below 2 MB");
+    }
+    const bitmap = await createImageBitmap(file);
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not resize image")), "image/webp", 0.85));
+    if (blob.size > 2000000) throw new Error("Image is too large after resizing");
+    return new File([blob], "upload.webp", { type:"image/webp" });
+  }
+
+  fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || "").split(",", 2)[1] || "");
+      reader.onerror = () => reject(new Error("Could not read image"));
+      reader.readAsDataURL(file);
+    });
+  }
+
   commitNumberInput(input, fallbackValue = undefined) {
     const minimum = Number(input.min || Number.NEGATIVE_INFINITY);
     const maximum = Number(input.max || Number.POSITIVE_INFINITY);
@@ -1009,11 +1105,13 @@ class BatteryChargeManagerPanel extends BcmBase {
   normalizeDraft(type) {
     const d = { ...this._draft };
     if (type === "battery") {
-      d.nominal_capacity_mah = Number(d.nominal_capacity_mah || 1000);
-      d.nominal_voltage_v = d.nominal_voltage_v === "" ? null : Number(d.nominal_voltage_v);
-      d.nominal_energy_wh = d.nominal_energy_wh === "" ? null : Number(d.nominal_energy_wh);
-      d.rest_time_minutes = d.rest_time_minutes === "" ? null : Number(d.rest_time_minutes);
+      d.nominal_capacity_mah = d.nominal_capacity_mah === "" || d.nominal_capacity_mah === null || d.nominal_capacity_mah === undefined ? null : Number(d.nominal_capacity_mah);
+      d.nominal_voltage_v = d.nominal_voltage_v === "" || d.nominal_voltage_v === undefined ? null : Number(d.nominal_voltage_v);
+      d.nominal_energy_wh = d.nominal_energy_wh === "" || d.nominal_energy_wh === undefined ? null : Number(d.nominal_energy_wh);
+      d.rest_time_minutes = d.rest_time_minutes === "" || d.rest_time_minutes === undefined ? null : Number(d.rest_time_minutes);
     } else {
+      d.power_sensor = d.power_sensor || null;
+      d.temperature_sensor = d.temperature_sensor || null;
       d.max_power_w = Number(d.max_power_w || 100);
       d.max_temperature_c = d.max_temperature_c === "" ? null : Number(d.max_temperature_c);
       d.port_labels = String(d.port_labels || "A,B,C,D").split(",").map((item) => item.trim()).filter(Boolean);

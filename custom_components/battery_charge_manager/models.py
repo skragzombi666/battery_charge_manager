@@ -178,6 +178,7 @@ class ChargerSetup:
     port_labels: list[str] = field(default_factory=lambda: ["A", "B", "C", "D"])
     max_power_w: float = DEFAULT_MAX_POWER_W
     max_temperature_c: float | None = None
+    image: dict[str, Any] | str | None = None
     revision: int = 1
     created_at: str | None = None
     updated_at: str | None = None
@@ -197,6 +198,7 @@ class ChargerSetup:
             "port_labels": self.port_labels,
             "max_power_w": self.max_power_w,
             "max_temperature_c": self.max_temperature_c,
+            "image": self.image,
             "revision": self.revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -229,6 +231,7 @@ class ChargerSetup:
             port_labels=labels,
             max_power_w=float(data.get("max_power_w", DEFAULT_MAX_POWER_W)),
             max_temperature_c=_float_or_none(data.get("max_temperature_c")),
+            image=data.get("image"),
             revision=_int_or(data.get("revision"), 1),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),

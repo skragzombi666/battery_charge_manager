@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 import voluptuous as vol
@@ -12,6 +13,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN, IDLE_MODE_AUTOMATIC
+from .image_store import save_uploaded_image
 from .manager import BatteryChargeManager
 
 
@@ -23,6 +25,7 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
         ws_save_setup,
         ws_delete_setup,
         ws_save_battery,
+        ws_upload_image,
         ws_delete_battery,
         ws_select,
         ws_set_settings,
@@ -163,6 +166,38 @@ async def ws_save_battery(
         _send_error(connection, msg, err)
         return
     connection.send_result(msg["id"], battery.as_dict())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/upload_image",
+        vol.Required("filename"): str,
+        vol.Required("mime_type"): str,
+        vol.Required("data"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_upload_image(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Store an uploaded battery/setup image under /config/www."""
+    try:
+        path = await hass.async_add_executor_job(
+            partial(
+                save_uploaded_image,
+                hass.config.path(),
+                filename=msg["filename"],
+                mime_type=msg["mime_type"],
+                encoded_data=msg["data"],
+            )
+        )
+    except (OSError, ValueError) as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg["id"], {"path": path})
 
 
 @websocket_api.require_admin

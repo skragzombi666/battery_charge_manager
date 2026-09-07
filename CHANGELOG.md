@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3
+
+- Fixed setup editing with optional power/temperature sensors left unselected.
+- Fixed battery/setup save dialogs rerendering and jumping to the top during the first save attempt.
+- Added direct JPG/PNG/WebP image upload for battery types and charging setups, with local Home Assistant storage and previews.
+- Added charging-setup images to the setup overview.
+- Clarified nominal voltage as output voltage and removed implicit 1000 mAh population from new battery forms/saves.
+- Optional technical numeric fields remain empty until explicitly entered.
+
 ## 0.1.2
 
 - Removed the relative-charge-energy control from calibration because it does not affect full-charge calibration.

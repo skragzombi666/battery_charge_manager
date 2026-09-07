@@ -17,6 +17,11 @@ class FakeTabsElement {
 class FakeDialogElement {
   constructor() {
     this.scrollTop = 0;
+    this.listeners = new Map();
+  }
+
+  addEventListener(type, callback) {
+    this.listeners.set(type, callback);
   }
 }
 
