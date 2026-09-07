@@ -347,3 +347,49 @@ test("dashboard card shows selected ports and a compact live chart during chargi
   assert.match(card.shadowRoot.innerHTML, /A\s*\+\s*B/);
   assert.match(card.shadowRoot.innerHTML, /bcm-session-chart/);
 });
+
+test("chart degrades to energy-only when no power sensor data exists", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true } };
+  const energyOnly = chartSamples.map((sample) => ({
+    ...sample,
+    power_w: null,
+    net_power_w: null,
+  }));
+  panel._state = panelState({
+    mode: "calibrating",
+    session: {
+      phase: "main_charge",
+      ports: ["A", "B"],
+      chart_samples: energyOnly,
+    },
+  });
+
+  const html = panel.renderCalibrations(true);
+
+  assert.equal(html.includes('data-series="power"'), false);
+  assert.match(html, /data-series="energy"/);
+});
+
+test("automatic idle chart shows future minimum-duration marker before minimum is reached", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true } };
+  const shortTrace = chartSamples.slice(0, 2);
+  panel._state = panelState({
+    mode: "idle_measuring",
+    session: {
+      phase: "idle_measurement",
+      idle_measurement_mode: "automatic",
+      auto_min_minutes: 120,
+      auto_max_minutes: 480,
+      elapsed_seconds: 1800,
+      chart_samples: shortTrace,
+    },
+  });
+
+  const html = panel.renderIdle(true);
+
+  assert.match(html, /data-marker="minimum-duration"/);
+});
