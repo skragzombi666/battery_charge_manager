@@ -1,0 +1,38 @@
+name: Apply 0.1.2 chart fallback
+
+on:
+  push:
+    branches:
+      - fix/0.1.2
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/fix/0.1.2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Apply chart fallback fix
+        run: python tools/fix_0_1_2_chart_fallback.py
+      - name: Run frontend tests
+        run: node --test tests/test_frontend.mjs
+      - name: Check frontend syntax
+        run: node --check custom_components/battery_charge_manager/frontend/battery-charge-manager.js
+      - name: Commit implementation
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No implementation changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add custom_components/battery_charge_manager/frontend/battery-charge-manager.js
+          git commit -m "Fix chart fallback and minimum-duration marker"
+          git push
