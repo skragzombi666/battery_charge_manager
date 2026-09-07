@@ -91,7 +91,34 @@ const source = resolve(
 );
 const frontend = await import(`${pathToFileURL(source).href}?test=0.1.2`);
 
-const panelState = ({ quantity = 2, mode = "idle" } = {}) => ({
+const chartSamples = [
+  {
+    timestamp: "2026-09-07T08:00:00+00:00",
+    gross_energy_wh: 0,
+    idle_energy_wh: 0,
+    net_energy_wh: 0,
+    power_w: 4,
+    net_power_w: 3.8,
+  },
+  {
+    timestamp: "2026-09-07T08:30:00+00:00",
+    gross_energy_wh: 2,
+    idle_energy_wh: 0.1,
+    net_energy_wh: 1.9,
+    power_w: 3,
+    net_power_w: 2.8,
+  },
+  {
+    timestamp: "2026-09-07T09:00:00+00:00",
+    gross_energy_wh: 3,
+    idle_energy_wh: 0.2,
+    net_energy_wh: 2.8,
+    power_w: 0.25,
+    net_power_w: 0.05,
+  },
+];
+
+const panelState = ({ quantity = 2, mode = "idle", session = {} } = {}) => ({
   version: "0.1.2",
   setups: [
     {
@@ -111,12 +138,18 @@ const panelState = ({ quantity = 2, mode = "idle" } = {}) => ({
     phase: "idle",
     progress_percent: 0,
     current_power_w: null,
+    current_net_power_w: null,
     current_temperature_c: null,
+    peak_power_w: null,
+    peak_net_power_w: null,
     gross_energy_wh: 0,
     idle_energy_wh: 0,
     net_energy_wh: 0,
     elapsed_seconds: 0,
+    sample_count: 0,
     ports: [],
+    chart_samples: [],
+    ...session,
   },
   active_calibration_summary: {
     median_net_energy_wh: null,
@@ -202,4 +235,115 @@ test("panel rerender preserves horizontal navigation scroll position", () => {
   panel.render();
 
   assert.equal(panel.shadowRoot.querySelector(".bcm-tabs").scrollLeft, 180);
+});
+
+test("fixed idle measurement shows live progress remaining time and chart", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true } };
+  panel._state = panelState({
+    mode: "idle_measuring",
+    session: {
+      phase: "idle_measurement",
+      idle_measurement_mode: "fixed",
+      requested_duration_minutes: 300,
+      elapsed_seconds: 3600,
+      current_power_w: 0.2,
+      gross_energy_wh: 0.2,
+      sample_count: 123,
+      chart_samples: chartSamples,
+    },
+  });
+
+  const html = panel.renderIdle(true);
+
+  assert.match(html, /Laufende Messung/);
+  assert.match(html, /Verbleibende Zeit/);
+  assert.match(html, /4 h 00 min/);
+  assert.match(html, /20(?:\.0)?%/);
+  assert.match(html, /bcm-session-chart/);
+  assert.match(html, /data-series="power"/);
+  assert.match(html, /data-series="energy"/);
+});
+
+test("active calibration shows live phase ports and power-energy chart without fake percent progress", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true } };
+  panel._state = panelState({
+    quantity: 2,
+    mode: "calibrating",
+    session: {
+      phase: "taper",
+      elapsed_seconds: 5400,
+      current_power_w: 1.2,
+      peak_power_w: 7.5,
+      gross_energy_wh: 8.4,
+      idle_energy_wh: 0.3,
+      net_energy_wh: 8.1,
+      sample_count: 180,
+      ports: ["A", "B"],
+      chart_samples: chartSamples,
+      idle_correction_status: "applied",
+    },
+  });
+
+  const html = panel.renderCalibrations(true);
+
+  assert.match(html, /Laufende Kalibration/);
+  assert.match(html, /A\s*\+\s*B/);
+  assert.match(html, /Abregel/);
+  assert.match(html, /bcm-session-chart/);
+  assert.equal(html.includes("data-target"), false);
+  assert.equal(html.includes("bcm-progress"), false);
+});
+
+test("active charge shows target-energy chart and exact ports", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true } };
+  panel._state = panelState({
+    quantity: 2,
+    mode: "charging",
+    session: {
+      phase: "main_charge",
+      progress_percent: 50,
+      target_energy_wh: 6,
+      net_energy_wh: 3,
+      elapsed_seconds: 1800,
+      ports: ["A", "B"],
+      chart_samples: chartSamples,
+    },
+  });
+
+  const html = panel.renderCharge();
+
+  assert.match(html, /Laufender Ladevorgang/);
+  assert.match(html, /A\s*\+\s*B/);
+  assert.match(html, /bcm-session-chart/);
+  assert.match(html, /data-marker="target-energy"/);
+});
+
+test("dashboard card shows selected ports and a compact live chart during charging", () => {
+  const Card = customElements.get("battery-charge-manager-card");
+  const card = new Card();
+  card._hass = { language: "de" };
+  card._config = {};
+  card._state = panelState({
+    quantity: 2,
+    mode: "charging",
+    session: {
+      phase: "main_charge",
+      progress_percent: 40,
+      target_energy_wh: 5,
+      net_energy_wh: 2,
+      ports: ["A", "B"],
+      chart_samples: chartSamples,
+    },
+  });
+
+  card.render();
+
+  assert.match(card.shadowRoot.innerHTML, /A\s*\+\s*B/);
+  assert.match(card.shadowRoot.innerHTML, /bcm-session-chart/);
 });
