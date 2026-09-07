@@ -2029,6 +2029,23 @@ class BatteryChargeManager:
             dt_util.utcnow(),
         ) if self.session.session_started_at else 0.0
         session["sample_count"] = len(self.session.samples)
+        chart_limit = 240
+        raw_chart_samples = self.session.samples
+        if len(raw_chart_samples) <= chart_limit:
+            chart_samples = raw_chart_samples
+        else:
+            last_index = len(raw_chart_samples) - 1
+            indices = [
+                round(index * last_index / (chart_limit - 1))
+                for index in range(chart_limit)
+            ]
+            chart_samples = [raw_chart_samples[index] for index in indices]
+        session["chart_samples"] = [sample.as_dict() for sample in chart_samples]
+        session["idle_live_assessment"] = (
+            self._assess_idle_trace()
+            if self.session.mode == SESSION_IDLE_MEASURING
+            else {}
+        )
         active_calibration = self.calibration_summary(
             setup_id, battery_id, self.selected_quantity
         )
