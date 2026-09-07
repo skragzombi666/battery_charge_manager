@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- Fixed stale Battery Charge Manager panel code surviving upgrades in long-lived Home Assistant browser/WebView sessions by registering a revision-specific custom element for each frontend build.
+- This ensures newly added setup controls such as direct image upload and current save-dialog behavior are actually used after an integration update.
+- Save errors are now displayed inside the open edit dialog instead of only behind the modal overlay.
+
 ## 0.1.4
 
 - Fixed editing charging setups with an unset optional temperature safety limit; `null` is no longer converted to `0` before saving.
