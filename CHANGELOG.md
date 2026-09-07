@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2
+
+- Removed the relative-charge-energy control from calibration because it does not affect full-charge calibration.
+- Added explicit first-N charging-port instructions for charging and calibration.
+- Preserved horizontal tab navigation position across live frontend rerenders.
+- Added live process views for fixed/automatic idle measurements, calibration, and normal charging.
+- Added remaining time and expected end for fixed-duration idle measurements.
+- Added lightweight SVG live charts for power and energy in the panel and a compact charging chart in the dashboard card.
+- Added live idle-assessment data and bounded full-session chart downsampling to the frontend state.
+
 ## 0.1.1
 
 - Calibrations can start without a reliable idle measurement and are stored with pending idle correction.

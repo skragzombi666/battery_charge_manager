@@ -8,6 +8,7 @@ from test_core import (
     BatteryType,
     CalibrationRecord,
     ChargerSetup,
+    ChargeSession,
     ConfigEntry,
     FakeHass,
     IdleMeasurement,
@@ -154,6 +155,47 @@ class Release011RegressionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(summary["pending_count"], 0)
         self.assertAlmostEqual(summary["median_net_energy_wh"], 3.0)
+
+    def test_frontend_state_exposes_bounded_live_trace_and_idle_assessment(self) -> None:
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=timezone.utc)
+        samples = []
+        for index in range(260):
+            timestamp = start + timedelta(seconds=index * 30)
+            samples.append(
+                MeasurementSample(
+                    timestamp=timestamp.isoformat(),
+                    gross_energy_wh=index * 0.001,
+                    net_energy_wh=index * 0.001,
+                    power_w=0.2,
+                    net_power_w=0.2,
+                    switch_state="on",
+                )
+            )
+        self.manager.session = ChargeSession(
+            session_id="session-1",
+            mode="idle_measuring",
+            phase="idle_measurement",
+            setup_id=self.setup.setup_id,
+            quantity=0,
+            session_started_at=start.isoformat(),
+            switch_on_at=start.isoformat(),
+            last_sample_at=samples[-1].timestamp,
+            gross_energy_wh=samples[-1].gross_energy_wh,
+            idle_measurement_mode="fixed",
+            requested_duration_minutes=300,
+            samples=samples,
+        )
+
+        state = self.manager.frontend_state()
+        session = state["session"]
+
+        self.assertLessEqual(len(session["chart_samples"]), 240)
+        self.assertEqual(session["chart_samples"][0]["timestamp"], samples[0].timestamp)
+        self.assertEqual(
+            session["chart_samples"][-1]["timestamp"], samples[-1].timestamp
+        )
+        self.assertIn("idle_live_assessment", session)
+        self.assertIn("average_power_w", session["idle_live_assessment"])
 
 
 if __name__ == "__main__":
