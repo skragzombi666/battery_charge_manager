@@ -40,22 +40,23 @@ jobs:
           end = text.find(end_marker, start)
           if start < 0 or end < 0:
               raise SystemExit("manager capacity block not found")
-          new_block = '''        raw_capacity = data.get("nominal_capacity_mah")
-          nominal_capacity_mah = None
-          if raw_capacity not in {None, ""}:
-              try:
-                  nominal_capacity_mah = int(float(raw_capacity))
-              except (TypeError, ValueError) as err:
-                  raise HomeAssistantError("Nominal capacity must be a number") from err
-              if nominal_capacity_mah <= 0:
-                  raise HomeAssistantError("Nominal capacity must be greater than zero")
-          nominal_voltage_v = self._optional_positive_float(data.get("nominal_voltage_v"))
-          nominal_energy_wh = self._optional_positive_float(data.get("nominal_energy_wh"))
-          if nominal_capacity_mah is None and nominal_energy_wh is None:
-              raise HomeAssistantError(
-                  "Nominal capacity or nominal energy is required"
-              )
-          '''
+          new_block = (
+              '        raw_capacity = data.get("nominal_capacity_mah")\n'
+              '        nominal_capacity_mah = None\n'
+              '        if raw_capacity not in {None, ""}:\n'
+              '            try:\n'
+              '                nominal_capacity_mah = int(float(raw_capacity))\n'
+              '            except (TypeError, ValueError) as err:\n'
+              '                raise HomeAssistantError("Nominal capacity must be a number") from err\n'
+              '            if nominal_capacity_mah <= 0:\n'
+              '                raise HomeAssistantError("Nominal capacity must be greater than zero")\n'
+              '        nominal_voltage_v = self._optional_positive_float(data.get("nominal_voltage_v"))\n'
+              '        nominal_energy_wh = self._optional_positive_float(data.get("nominal_energy_wh"))\n'
+              '        if nominal_capacity_mah is None and nominal_energy_wh is None:\n'
+              '            raise HomeAssistantError(\n'
+              '                "Nominal capacity or nominal energy is required"\n'
+              '            )\n'
+          )
           text = text[:start] + new_block + text[end:]
           manager.write_text(text, encoding="utf-8")
 
