@@ -389,13 +389,16 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
   let lastTime = samples[samples.length - 1].time;
   if (mode === "idle" && session.idle_measurement_mode === "fixed" && session.requested_duration_minutes) {
     lastTime = Math.max(lastTime, firstTime + Number(session.requested_duration_minutes) * 60000);
+  } else if (mode === "idle" && session.idle_measurement_mode === "automatic" && session.auto_min_minutes) {
+    lastTime = Math.max(lastTime, firstTime + Number(session.auto_min_minutes) * 60000);
   }
   const span = Math.max(1, lastTime - firstTime);
   const x = (time) => left + ((time - firstTime) / span) * (width - left - right);
   const powerKey = mode === "idle" ? "power_w" : "net_power_w";
   const energyKey = mode === "idle" ? "gross_energy_wh" : "net_energy_wh";
-  const powerValues = samples.map((item) => Number(item[powerKey])).filter(Number.isFinite);
-  const energyValues = samples.map((item) => Number(item[energyKey])).filter(Number.isFinite);
+  const hasNumber = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+  const powerValues = samples.map((item) => item[powerKey]).filter(hasNumber).map(Number);
+  const energyValues = samples.map((item) => item[energyKey]).filter(hasNumber).map(Number);
   const powerMax = Math.max(0.1, ...powerValues);
   const targetEnergy = mode === "charging" && Number.isFinite(Number(session.target_energy_wh))
     ? Number(session.target_energy_wh)
@@ -404,7 +407,7 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
   const yPower = (value) => height - bottom - (Number(value) / powerMax) * (height - top - bottom);
   const yEnergy = (value) => height - bottom - (Number(value) / energyMax) * (height - top - bottom);
   const points = (key, y) => samples
-    .filter((item) => Number.isFinite(Number(item[key])))
+    .filter((item) => hasNumber(item[key]))
     .map((item) => `${x(item.time).toFixed(1)},${y(item[key]).toFixed(1)}`)
     .join(" ");
   const powerPoints = points(powerKey, yPower);
