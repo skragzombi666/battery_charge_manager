@@ -42,10 +42,12 @@ const source = resolve(
 );
 await import(`${pathToFileURL(source).href}?test=battery-energy-mwh`);
 
+const panelClass = () => customElements.get(
+  [...customElements.registry.keys()].find((name) => name.startsWith("battery-charge-manager-panel")),
+);
+
 test("battery form converts nominal energy from mWh and leaves mAh optional", () => {
-  const Panel = customElements.get(
-    [...customElements.registry.keys()].find((name) => name.startsWith("battery-charge-manager-panel")),
-  );
+  const Panel = panelClass();
   const panel = new Panel();
   panel._draft = {
     name: "3600",
@@ -62,4 +64,26 @@ test("battery form converts nominal energy from mWh and leaves mAh optional", ()
   assert.equal(normalized.nominal_capacity_mah, null);
   assert.equal(normalized.nominal_energy_wh, 3.6);
   assert.equal("nominal_energy_mwh" in normalized, false);
+});
+
+test("battery edit dialog labels energy as mWh and does not require mAh", () => {
+  const Panel = panelClass();
+  const panel = new Panel();
+  panel._hass = { language: "de" };
+  panel._dialog = "battery";
+  panel._draft = {
+    name: "3600",
+    nominal_capacity_mah: null,
+    nominal_voltage_v: 1.5,
+    nominal_energy_wh: 3.6,
+    technology: "Li-Ion USB-C",
+    form_factor: "AA",
+  };
+
+  const html = panel.renderDialog(true);
+  const capacityTag = html.match(/<input data-draft="nominal_capacity_mah"[^>]*>/)?.[0] || "";
+
+  assert.match(html, /Nennenergie \(mWh\)/);
+  assert.match(html, /data-draft="nominal_energy_mwh"[^>]*value="3600"/);
+  assert.doesNotMatch(capacityTag, /required/);
 });
