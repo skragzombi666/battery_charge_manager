@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: "24"
       - name: Frontend regression tests
-        run: node --test tests/test_frontend.mjs
+        run: node --test tests/*.mjs
       - name: Frontend syntax
         if: always()
         run: node --check custom_components/battery_charge_manager/frontend/battery-charge-manager.js

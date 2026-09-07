@@ -1113,7 +1113,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       d.power_sensor = d.power_sensor || null;
       d.temperature_sensor = d.temperature_sensor || null;
       d.max_power_w = Number(d.max_power_w || 100);
-      d.max_temperature_c = d.max_temperature_c === "" ? null : Number(d.max_temperature_c);
+      d.max_temperature_c = d.max_temperature_c === "" || d.max_temperature_c === null || d.max_temperature_c === undefined ? null : Number(d.max_temperature_c);
       d.port_labels = String(d.port_labels || "A,B,C,D").split(",").map((item) => item.trim()).filter(Boolean);
     }
     return d;

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Fixed editing charging setups with an unset optional temperature safety limit; `null` is no longer converted to `0` before saving.
+- Added a regression test covering the exact `null` to `0` failure reported from the mobile setup dialog.
+
 ## 0.1.3
 
 - Fixed setup editing with optional power/temperature sensors left unselected.
