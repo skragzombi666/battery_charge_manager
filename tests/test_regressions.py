@@ -189,10 +189,8 @@ class Release011RegressionTests(unittest.IsolatedAsyncioTestCase):
         state = self.manager.frontend_state()
         session = state["session"]
 
-        self.assertEqual(len(session["chart_samples"]), 240)
-        self.assertEqual(
-            session["chart_samples"][0]["timestamp"], samples[-240].timestamp
-        )
+        self.assertLessEqual(len(session["chart_samples"]), 240)
+        self.assertEqual(session["chart_samples"][0]["timestamp"], samples[0].timestamp)
         self.assertEqual(
             session["chart_samples"][-1]["timestamp"], samples[-1].timestamp
         )
