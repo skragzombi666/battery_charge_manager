@@ -197,6 +197,42 @@ class Release011RegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("idle_live_assessment", session)
         self.assertIn("average_power_w", session["idle_live_assessment"])
 
+    async def test_optional_setup_sensors_accept_none_and_setup_image_round_trips(self) -> None:
+        updated = await self.manager.async_add_or_update_setup(
+            {
+                "setup_id": self.setup.setup_id,
+                "name": "Setup",
+                "switch_entity": "switch.charger",
+                "energy_sensor": "sensor.energy",
+                "power_sensor": None,
+                "temperature_sensor": None,
+                "port_labels": ["A", "B", "C", "D"],
+                "max_power_w": 100,
+                "image": "/local/battery_charge_manager/setup.webp",
+            }
+        )
+
+        self.assertIsNone(updated.power_sensor)
+        self.assertIsNone(updated.temperature_sensor)
+        self.assertEqual(
+            updated.image,
+            "/local/battery_charge_manager/setup.webp",
+        )
+        self.assertEqual(
+            ChargerSetup.from_dict(updated.as_dict()).image,
+            "/local/battery_charge_manager/setup.webp",
+        )
+
+    async def test_battery_save_requires_explicit_nominal_capacity(self) -> None:
+        with self.assertRaisesRegex(Exception, "Nominal capacity"):
+            await self.manager.async_add_or_update_battery(
+                {
+                    "name": "No implicit capacity",
+                    "technology": "Li-Ion USB-C",
+                    "form_factor": "AA",
+                }
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
