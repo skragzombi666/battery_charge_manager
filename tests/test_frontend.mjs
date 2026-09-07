@@ -14,17 +14,30 @@ class FakeTabsElement {
   }
 }
 
+class FakeDialogElement {
+  constructor() {
+    this.scrollTop = 0;
+    this.listeners = new Map();
+  }
+
+  addEventListener(type, callback) {
+    this.listeners.set(type, callback);
+  }
+}
+
 class ShadowRootStub {
   constructor() {
     this.activeElement = null;
     this._innerHTML = "";
     this.listeners = new Map();
     this.tabs = null;
+    this.dialog = null;
   }
 
   set innerHTML(value) {
     this._innerHTML = value;
     this.tabs = String(value).includes('class="bcm-tabs"') ? new FakeTabsElement() : null;
+    this.dialog = String(value).includes('class="bcm-dialog"') ? new FakeDialogElement() : null;
   }
 
   get innerHTML() {
@@ -41,6 +54,7 @@ class ShadowRootStub {
 
   querySelector(selector) {
     if (selector === ".bcm-tabs") return this.tabs;
+    if (selector === ".bcm-dialog") return this.dialog;
     return null;
   }
 
@@ -89,7 +103,7 @@ globalThis.confirm = () => true;
 const source = resolve(
   "custom_components/battery_charge_manager/frontend/battery-charge-manager.js",
 );
-const frontend = await import(`${pathToFileURL(source).href}?test=0.1.2`);
+const frontend = await import(`${pathToFileURL(source).href}?test=0.1.3`);
 
 const chartSamples = [
   {
@@ -119,7 +133,7 @@ const chartSamples = [
 ];
 
 const panelState = ({ quantity = 2, mode = "idle", session = {} } = {}) => ({
-  version: "0.1.2",
+  version: "0.1.3",
   setups: [
     {
       setup_id: "setup-1",
@@ -392,4 +406,68 @@ test("automatic idle chart shows future minimum-duration marker before minimum i
   const html = panel.renderIdle(true);
 
   assert.match(html, /data-marker="minimum-duration"/);
+});
+
+test("new battery form leaves technical numeric fields empty and clarifies output voltage", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true } };
+  panel._state = panelState();
+  panel._dialog = "battery";
+  panel._draft = {};
+
+  const html = panel.renderDialog(true);
+
+  assert.match(html, /Nennspannung \(Ausgangsspannung\) \(V\)/);
+  assert.match(html, /data-draft="nominal_capacity_mah"[^>]*value=""/);
+  assert.match(html, /data-draft="rest_time_minutes"[^>]*value=""/);
+  assert.match(html, /data-image-upload="battery"/);
+});
+
+test("charging setup form supports image upload", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true }, states: {} };
+  panel._state = panelState();
+  panel._dialog = "setup";
+  panel._draft = {};
+
+  const html = panel.renderDialog(true);
+
+  assert.match(html, /data-image-upload="setup"/);
+  assert.match(html, /data-draft="image"/);
+});
+
+test("save flow suppresses intermediate dialog rerender and closes once", async () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true } };
+  panel._state = panelState();
+  panel._dialog = "battery";
+  panel._draft = { name: "Test", nominal_capacity_mah: "1700" };
+  const renderedDialogStates = [];
+  panel.render = () => renderedDialogStates.push(panel._dialog);
+  panel.call = async () => {
+    panel._requestRender();
+    return {};
+  };
+
+  await panel.handleAction("save-battery");
+
+  assert.deepEqual(renderedDialogStates, [null]);
+});
+
+test("dialog rerender preserves vertical scroll position", () => {
+  const Panel = customElements.get("battery-charge-manager-panel");
+  const panel = new Panel();
+  panel._hass = { language: "de", user: { is_admin: true }, states: {} };
+  panel._state = panelState();
+  panel._dialog = "battery";
+  panel._draft = { name: "Test", nominal_capacity_mah: 1700 };
+
+  panel.render();
+  panel.shadowRoot.querySelector(".bcm-dialog").scrollTop = 420;
+  panel.render();
+
+  assert.equal(panel.shadowRoot.querySelector(".bcm-dialog").scrollTop, 420);
 });

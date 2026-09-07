@@ -362,9 +362,9 @@ class BatteryChargeManager:
         labels = self._normalize_port_labels(data.get("port_labels"))
         switch_entity = str(data.get("switch_entity", "")).strip()
         energy_sensor = str(data.get("energy_sensor", "")).strip()
-        power_sensor = str(data.get("power_sensor", "")).strip() or None
-        temperature_sensor = (
-            str(data.get("temperature_sensor", "")).strip() or None
+        power_sensor = self._optional_entity_id(data.get("power_sensor"))
+        temperature_sensor = self._optional_entity_id(
+            data.get("temperature_sensor")
         )
         self._validate_setup_entities(
             switch_entity,
@@ -390,6 +390,7 @@ class BatteryChargeManager:
                 max_temperature_c=self._optional_positive_float(
                     data.get("max_temperature_c")
                 ),
+                image=data.get("image") or None,
                 created_at=now,
                 updated_at=now,
             )
@@ -430,6 +431,7 @@ class BatteryChargeManager:
             existing.max_temperature_c = self._optional_positive_float(
                 data.get("max_temperature_c")
             )
+            existing.image = data.get("image") or None
             existing.updated_at = now
             setup = existing
         self.selected_setup_id = setup.setup_id
@@ -461,7 +463,15 @@ class BatteryChargeManager:
             for item in self.batteries.values()
         ):
             raise HomeAssistantError("A battery type with this name already exists")
-        nominal_capacity_mah = max(1, int(float(data.get("nominal_capacity_mah", 1000))))
+        raw_capacity = data.get("nominal_capacity_mah")
+        if raw_capacity in {None, ""}:
+            raise HomeAssistantError("Nominal capacity is required")
+        try:
+            nominal_capacity_mah = int(float(raw_capacity))
+        except (TypeError, ValueError) as err:
+            raise HomeAssistantError("Nominal capacity must be a number") from err
+        if nominal_capacity_mah <= 0:
+            raise HomeAssistantError("Nominal capacity must be greater than zero")
         nominal_voltage_v = self._optional_positive_float(data.get("nominal_voltage_v"))
         nominal_energy_wh = self._optional_positive_float(data.get("nominal_energy_wh"))
         if existing is None:
@@ -2384,6 +2394,16 @@ class BatteryChargeManager:
         if len(set(labels)) != len(labels):
             raise HomeAssistantError("Port labels must be unique")
         return labels
+
+    @staticmethod
+    def _optional_entity_id(value: Any) -> str | None:
+        """Normalize an optional entity id without turning None into text."""
+        if value in {None, ""}:
+            return None
+        text = str(value).strip()
+        if not text or text.casefold() in {"none", "null"}:
+            return None
+        return text
 
     @staticmethod
     def _optional_positive_float(value: Any) -> float | None:
