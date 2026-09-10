@@ -268,6 +268,8 @@ class IdleMeasurement:
     valid: bool = True
     invalid_reason: str = ""
     end_reason: str = ""
+    revision_approvals: list[dict[str, Any]] = field(default_factory=list)
+    validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
     samples: list[MeasurementSample] = field(default_factory=list)
 
@@ -303,6 +305,8 @@ class IdleMeasurement:
             "valid": self.valid,
             "invalid_reason": self.invalid_reason,
             "end_reason": self.end_reason,
+            "revision_approvals": self.revision_approvals,
+            "validity_history": self.validity_history,
             "algorithm_version": self.algorithm_version,
         }
         if include_samples:
@@ -341,6 +345,8 @@ class IdleMeasurement:
             valid=bool(data.get("valid", True)),
             invalid_reason=str(data.get("invalid_reason", "")),
             end_reason=str(data.get("end_reason", "")),
+            revision_approvals=[dict(item) for item in data.get("revision_approvals", [])],
+            validity_history=[dict(item) for item in data.get("validity_history", [])],
             algorithm_version=str(data.get("algorithm_version", ALGORITHM_VERSION)),
             samples=[
                 MeasurementSample.from_dict(item)
@@ -394,6 +400,8 @@ class CalibrationRecord:
     invalid_reason: str = ""
     manual_override: bool = False
     legacy: bool = False
+    revision_approvals: list[dict[str, Any]] = field(default_factory=list)
+    validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
     samples: list[MeasurementSample] = field(default_factory=list)
 
@@ -445,6 +453,8 @@ class CalibrationRecord:
             "invalid_reason": self.invalid_reason,
             "manual_override": self.manual_override,
             "legacy": self.legacy,
+            "revision_approvals": self.revision_approvals,
+            "validity_history": self.validity_history,
             "algorithm_version": self.algorithm_version,
         }
         if include_samples:
@@ -512,6 +522,8 @@ class CalibrationRecord:
             invalid_reason=str(data.get("invalid_reason", "")),
             manual_override=bool(data.get("manual_override", False)),
             legacy=bool(data.get("legacy", False)),
+            revision_approvals=[dict(item) for item in data.get("revision_approvals", [])],
+            validity_history=[dict(item) for item in data.get("validity_history", [])],
             algorithm_version=str(data.get("algorithm_version", ALGORITHM_VERSION)),
             samples=[
                 MeasurementSample.from_dict(item)

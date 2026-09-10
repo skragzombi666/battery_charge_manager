@@ -12,6 +12,8 @@ A calibration therefore applies only to the exact combination of:
 - fixed port allocation;
 - defined initial battery condition.
 
+An administrator may explicitly approve a historical record for the exact current setup/battery revisions after reviewing the differences and confirming equivalent conditions. Original snapshots and revisions remain recorded; quantity and port allocation are not reassigned.
+
 ## Idle-power correction
 
 Let:
@@ -41,7 +43,9 @@ The automatic mode requires:
 - stable estimates across sequential windows;
 - enough accumulated energy relative to sensor resolution, or a sufficiently low calculated upper bound when no energy step is observed.
 
-Several valid current-revision measurements are combined using their median. Unreliable results are retained but do not satisfy the prerequisite for a new calibration.
+Valid current-revision or explicitly approved measurements are combined using their median. Reliable measured estimates take priority over below-detection results; censored results are not treated as measured zeroes. If all reliable results are below detection, zero is used as an explicitly indicated lower bound. Conflicting measurements produce an unstable aggregate and cannot supply correction.
+
+Without a usable baseline, calibration may still record a gross trace but its idle correction remains pending and its result cannot supply a charge target. A new usable baseline automatically corrects applicable pending traces. Normal charging requires a usable baseline and an applicable corrected calibration.
 
 ## Retrospective endpoint
 
@@ -53,7 +57,9 @@ This distinction prevents confirmation time and small maintenance pulses from in
 
 ## Repeated measurements
 
-The operational value for an exact profile is the median of valid current-revision calibration records. The integration also calculates robust spread, standard deviation, recent drift, and quality status.
+The operational value for an exact profile is the median of valid current-revision or explicitly approved calibration records. Pending results, records with invalid/missing idle references and nonpositive net energies are excluded. High/medium-confidence records take precedence over low-confidence fallbacks. The integration also calculates robust spread, standard deviation, recent drift, and quality status.
+
+Invalidating an idle source excludes dependent calibrations without erasing their results. Existing corrected records are recalculated only on explicit request, preserving prior analyses. Revoking a source's revision approval only changes eligibility for future baseline aggregation; it does not invalidate that source's historical measurements or silently rewrite previous corrections.
 
 The quantity regression model is used only to identify implausible nonlinearity or outliers. It never replaces a direct calibration for an available quantity.
 

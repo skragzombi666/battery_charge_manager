@@ -4,8 +4,8 @@ from __future__ import annotations
 
 DOMAIN = "battery_charge_manager"
 NAME = "Battery Charge Manager"
-VERSION = "0.1.6"
-ALGORITHM_VERSION = "0.1.3"
+VERSION = "0.1.7"
+ALGORITHM_VERSION = "0.1.7"
 
 PLATFORMS = ["sensor", "select", "number", "button"]
 

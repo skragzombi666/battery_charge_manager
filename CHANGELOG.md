@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.7
+
+- Replaced six peer navigation tabs with a charging home page, a grouped management area and clear return paths. Added the native Home Assistant sidebar icon control.
+- Kept quantity buttons and the battery-type dropdown directly accessible; moved rarely changed setup/relative energy target into a collapsed editor with a visible summary.
+- Added a calibration starter with a browser-local, per-user open/closed preference. All running operation types stay visible on home regardless of that preference, with a return link from management.
+- Reused the existing live renderers and selection controls across home and management. Successful starts return home; committed selections refresh readiness even while the dropdown remains focused.
+- Separated record validity, confidence, origin revisions, revision approval and actual operational use in idle and calibration history. Valid records now have green badges regardless of confidence.
+- Added explicit, revocable approval of historical measurements for an exact current revision or setup/battery revision pair, with metadata comparison, a reason and a recorded decision history.
+- Added on-demand historical details with power/energy curves, sample inspection, source measurements, timestamps, snapshots and previous calibration analyses. Missing traces are identified clearly.
+- Added explicit idle-correction reanalysis with preserved previous results. Invalid idle sources exclude dependent calibrations; restoring or approving a source can resolve applicable pending calibrations.
+- Added history filters, progressive row display, selected-profile history without the former global 100-record cutoff, responsive layouts and protection against stale/opening/closing dialog races.
+- Fixed failed switch-ON confirmation and uncertain restart states to request verified OFF, and backward energy counters to abort without inventing energy.
+- Fixed confidence and confirmation timestamps after reanalysis, idle correction timing, and missing reasons after failed idle-measurement shutdown.
+- Kept below-detection results separate from measured estimates. Conflicting idle baselines cannot supply correction; normal charging requires a usable idle baseline.
+- Coalesced sensor-driven persistence while retaining per-event evaluation and immediate lifecycle saves, including shutdown. Disposed subscriptions that finish connecting after a panel disconnects.
+- Added Python, WebSocket handler and frontend regression tests. No new runtime dependencies.
+
 ## 0.1.6
 
 - Nominal capacity in mAh is no longer mandatory when nominal energy is available.

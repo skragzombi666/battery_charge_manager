@@ -8,16 +8,32 @@ It is designed for batteries with their own charging electronics, such as USB-C 
 
 ## Current version
 
-**0.1.0**
+**0.1.7**
 
 ## Main interface
 
-Version 0.1.0 provides two complementary interfaces:
+The integration provides two complementary interfaces:
 
-- a full **Battery Charge Manager panel** for setup management, battery profiles, idle measurements, calibrations, history, quality assessment, and settings;
+- a full **Battery Charge Manager panel** with a daily charging home page and a separate management area;
 - a compact **Battery Charge Manager dashboard card** for daily charging.
 
 The dashboard card contains an **Open manager** button that navigates directly to `/battery-charge-manager`. The sidebar entry can therefore be hidden in a user's Home Assistant profile without losing access to the full panel.
+
+The panel opens on **Home**. Any running charge, calibration or idle measurement
+appears first with its live chart and controls. For a new charge, quantity buttons
+and the battery-type dropdown stay directly accessible. The current setup and
+relative energy target appear below them; expand **Change** to edit these less
+frequent choices. Selections keep using the integration's saved values.
+
+**Calibrate** can stay expanded during periods of frequent calibration. Each
+browser/app device remembers its own open/closed choice for the signed-in HA
+user, including across reloads. It starts closed on a new device. Closing this
+section never hides a running calibration or stops a measurement.
+
+**Management** groups battery profiles, charging setups, idle measurements,
+calibrations/history and settings. Child pages link back to management and home;
+running operations retain a direct return link. The top-left Home Assistant menu
+button opens the HA sidebar.
 
 The integration also creates regular Home Assistant entities for automations, notifications, and custom dashboards.
 
@@ -39,7 +55,7 @@ A charging setup represents the complete physical arrangement used for a measure
 
 The port order is operationally significant. With ports `A, B, C, D`, charging two batteries always means ports `A + B`; charging three means `A + B + C`.
 
-Technical changes create a new setup revision. Existing measurements remain in the audit history but are excluded from calculations for the new revision.
+Technical changes create a new setup revision. Existing measurements remain in the audit history and initially become historical. An administrator can explicitly approve an older measurement for the current revision after comparing the changes and confirming equivalent measurement conditions. Its original revision and snapshot remain unchanged; approval never extends automatically to a future revision.
 
 ### Battery profiles
 
@@ -56,7 +72,7 @@ Each battery type can store:
 - expected rest time before charging;
 - notes describing the repeatable starting condition.
 
-Technical changes create a new battery revision. Previous measurements remain retained but become historical for current calculations.
+Technical changes create a new battery revision. Previous measurements remain retained but become historical for current calculations. A calibration can be approved for an exact current setup/battery revision pair; its battery quantity and port allocation stay fixed.
 
 ### Independent idle-power measurements
 
@@ -71,6 +87,8 @@ Multiple measurements are retained. Current valid and reliable measurements are 
 
 For coarse cumulative energy sensors, the integration evaluates the inferred measurement resolution. If no energy step is observed, the result is reported as being below a calculated detection limit instead of claiming an exact zero.
 
+Below-detection results are not mixed as zeroes into measured estimates. If only reliable below-detection results exist, correction uses zero as an explicitly indicated lower bound. Conflicting idle measurements are marked unstable and cannot provide operational correction.
+
 ### Full-charge calibration
 
 Calibrations are specific to the exact combination of:
@@ -80,7 +98,7 @@ Calibrations are specific to the exact combination of:
 - battery quantity;
 - fixed port allocation.
 
-A reliable idle measurement is required before starting a new calibration.
+A calibration can start without a usable idle measurement. Its gross trace is retained with pending idle correction and excluded from operational calibration values. Correction runs automatically once a reliable, consistent idle baseline becomes available. Normal charging requires both an applicable calibration and a usable idle baseline.
 
 During calibration the integration records a raw trace containing timestamps, cumulative energy, gross energy, calculated idle energy, net charge energy, power, optional temperature, and switch state.
 
@@ -98,7 +116,11 @@ Manual completion remains available as a low-confidence fallback. It is clearly 
 
 ### Repeated calibrations and quality
 
-Every calibration remains an immutable record. Records can be invalidated and restored without deleting the audit trail.
+Every calibration retains its original identity, setup/battery snapshots and revision provenance. Records can be invalidated and restored without deleting the audit trail. Explicit recalculation of the idle correction preserves previous derived values and analysis revisions.
+
+History shows validity, confidence, original revisions and actual use separately, including the reason for exclusion. A valid badge is green even when confidence is low. Details include the historical power/energy curve, individual displayed samples, endpoint timestamps, source idle measurements, metadata differences and decision history. Older records without saved samples clearly state that no curve is available.
+
+Invalidating an idle measurement also excludes calibrations that depend on it. Restoring it can make those calibrations usable again, subject to revision and quality rules. Revoking only a revision approval removes the record from that revision's future aggregation; it does not rewrite existing corrected calibrations. See [history and revision behavior](docs/version-0.1.7.md).
 
 For each exact setup/battery/quantity profile the integration calculates:
 

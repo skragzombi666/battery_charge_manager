@@ -35,6 +35,9 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
         ws_start_idle_measurement,
         ws_stop,
         ws_set_measurement_validity,
+        ws_get_measurement,
+        ws_set_measurement_revision_approval,
+        ws_reanalyze_calibration,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -403,6 +406,77 @@ async def ws_set_measurement_validity(
             msg["record_id"],
             msg["valid"],
             msg["reason"],
+            actor_id=connection.user.id,
+        )
+    except HomeAssistantError as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/get_measurement",
+        vol.Required("record_type"): vol.In(["idle", "calibration"]),
+        vol.Required("record_id"): str,
+    }
+)
+@callback
+def ws_get_measurement(hass, connection, msg) -> None:
+    """Read one historical trace without adding it to subscription messages."""
+    try:
+        result = _manager(hass).measurement_details(msg["record_type"], msg["record_id"])
+    except HomeAssistantError as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_measurement_revision_approval",
+        vol.Required("record_type"): vol.In(["idle", "calibration"]),
+        vol.Required("record_id"): str,
+        vol.Required("approved"): bool,
+        vol.Required("reason"): str,
+        vol.Required("expected_setup_revision"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional("expected_battery_revision"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+@websocket_api.async_response
+async def ws_set_measurement_revision_approval(hass, connection, msg) -> None:
+    """Record a human decision about exact-revision compatibility."""
+    try:
+        await _manager(hass).async_set_measurement_revision_approval(
+            msg["record_type"], msg["record_id"], msg["approved"], msg["reason"],
+            expected_setup_revision=msg["expected_setup_revision"],
+            expected_battery_revision=msg.get("expected_battery_revision"),
+            actor_id=connection.user.id,
+        )
+    except HomeAssistantError as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/reanalyze_calibration",
+        vol.Required("record_id"): str,
+        vol.Required("expected_setup_revision"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required("expected_battery_revision"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+@websocket_api.async_response
+async def ws_reanalyze_calibration(hass, connection, msg) -> None:
+    """Recalculate derived values using the current reliable idle baseline."""
+    try:
+        await _manager(hass).async_reanalyze_calibration(
+            msg["record_id"], expected_setup_revision=msg["expected_setup_revision"],
+            expected_battery_revision=msg["expected_battery_revision"],
+            actor_id=connection.user.id,
         )
     except HomeAssistantError as err:
         _send_error(connection, msg, err)
