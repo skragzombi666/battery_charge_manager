@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import logging
@@ -93,6 +94,9 @@ from .models import (
     IdleMeasurement,
     MeasurementSample,
 )
+from .history import (
+    Measurement, chart_samples, current_approval, revision_differences, revision_status,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -133,6 +137,7 @@ class BatteryChargeManager:
         self._sample_lock = asyncio.Lock()
         self._commanding_switch = False
         self._finalizing = False
+        self._last_saved_at: datetime | None = None
 
     @property
     def signal(self) -> str:
@@ -306,11 +311,9 @@ class BatteryChargeManager:
             return
         switch_state = self.hass.states.get(setup.switch_entity)
         if switch_state is None or switch_state.state != "on":
-            self.session.mode = SESSION_IDLE
-            self.session.phase = PHASE_ERROR
-            self.session.valid = False
-            self.session.end_reason = "Charging switch was not on after restart"
-            self.session.session_finished_at = self._now_iso()
+            await self._async_abort_session(
+                "Charging switch was not confirmed on after restart"
+            )
             return
         self.session.restart_count += 1
         self.selected_setup_id = setup.setup_id
@@ -324,6 +327,8 @@ class BatteryChargeManager:
     async def async_shutdown(self) -> None:
         """Detach listeners without changing the physical charge state."""
         self._stop_tracking()
+        async with self._sample_lock:
+            await self._async_save()
 
     async def _async_save(self) -> None:
         """Persist all manager data."""
@@ -347,6 +352,7 @@ class BatteryChargeManager:
                 "max_session_hours": self.max_session_hours,
             }
         )
+        self._last_saved_at = dt_util.utcnow()
 
     @callback
     def _notify(self) -> None:
@@ -622,22 +628,211 @@ class BatteryChargeManager:
         self._notify()
 
     async def async_set_measurement_validity(
-        self, record_type: str, record_id: str, valid: bool, reason: str = ""
+        self, record_type: str, record_id: str, valid: bool, reason: str = "",
+        *, actor_id: str | None = None,
     ) -> None:
         """Mark a measurement valid or invalid without deleting its audit trail."""
         self._ensure_idle()
-        if record_type == "idle":
-            record = self.idle_measurements.get(record_id)
-        elif record_type == "calibration":
-            record = self.calibrations.get(record_id)
-        else:
-            raise HomeAssistantError("Unknown record type")
-        if record is None:
-            raise HomeAssistantError("Measurement record not found")
+        record = self._measurement(record_type, record_id)
+        if record.valid == valid:
+            return
+        record.validity_history.append({
+            "changed_at": self._now_iso(), "valid": bool(valid),
+            "previous_valid": record.valid, "reason": reason.strip(),
+            "previous_reason": record.invalid_reason, "actor_id": actor_id,
+        })
         record.valid = bool(valid)
         record.invalid_reason = "" if valid else reason.strip()
+        if valid:
+            self._reprocess_pending_calibrations(record.setup_id)
         await self._async_save()
         self._notify()
+
+    def _measurement(self, record_type: str, record_id: str) -> Measurement:
+        """Resolve one retained record by explicit kind and identity."""
+        if record_type not in {"idle", "calibration"}:
+            raise HomeAssistantError("Unknown record type")
+        records = self.idle_measurements if record_type == "idle" else self.calibrations
+        record = records.get(record_id)
+        if record is None:
+            raise HomeAssistantError("Measurement record not found")
+        return record
+
+    def _check_record_revisions(
+        self, record: Measurement, expected_setup_revision: int,
+        expected_battery_revision: int | None,
+    ) -> tuple[ChargerSetup, BatteryType | None]:
+        """Reject stale dialogs rather than approve unseen revisions."""
+        setup = self.setups.get(record.setup_id)
+        battery = (self.batteries.get(record.battery_id)
+                   if isinstance(record, CalibrationRecord) else None)
+        if setup is None or (isinstance(record, CalibrationRecord) and battery is None):
+            raise HomeAssistantError("Measurement setup or battery no longer exists")
+        if setup.revision != expected_setup_revision or (
+            battery is not None and battery.revision != expected_battery_revision
+        ):
+            raise HomeAssistantError("The current revision changed; reopen the measurement")
+        return setup, battery
+
+    async def async_set_measurement_revision_approval(
+        self, record_type: str, record_id: str, approved: bool, reason: str,
+        *, expected_setup_revision: int, expected_battery_revision: int | None = None,
+        actor_id: str | None = None,
+    ) -> None:
+        """Approve or revoke exact-revision reuse without altering provenance."""
+        self._ensure_idle()
+        record = self._measurement(record_type, record_id)
+        setup, battery = self._check_record_revisions(
+            record, expected_setup_revision, expected_battery_revision,
+        )
+        status = revision_status(record, setup, battery)
+        if status not in {"historical", "approved"}:
+            raise HomeAssistantError("No compatible historical revision to approve")
+        if not reason.strip():
+            raise HomeAssistantError("A reason for the revision decision is required")
+        approval = current_approval(record, setup, battery)
+        if approved:
+            if not record.valid:
+                raise HomeAssistantError("Restore measurement validity before approving reuse")
+            if approval is not None:
+                return
+            record.revision_approvals.append({
+                "setup_revision": setup.revision,
+                "battery_revision": battery.revision if battery else None,
+                "setup_snapshot": deepcopy(setup.snapshot()),
+                "battery_snapshot": deepcopy(battery.snapshot()) if battery else None,
+                "approved_at": self._now_iso(), "reason": reason.strip(),
+                "actor_id": actor_id, "revoked_at": None,
+            })
+            self._reprocess_pending_calibrations(record.setup_id)
+        elif approval is not None:
+            approval.update({"revoked_at": self._now_iso(),
+                             "revoke_reason": reason.strip(), "revoked_by": actor_id})
+        else:
+            return
+        await self._async_save()
+        self._notify()
+
+    async def async_reanalyze_calibration(
+        self, record_id: str, *, expected_setup_revision: int,
+        expected_battery_revision: int, actor_id: str | None = None,
+    ) -> None:
+        """Explicitly replace a derived analysis, retaining its previous result."""
+        self._ensure_idle()
+        record = self._measurement("calibration", record_id)
+        setup, battery = self._check_record_revisions(
+            record, expected_setup_revision, expected_battery_revision,
+        )
+        if not record.valid or revision_status(record, setup, battery) not in {"native", "approved"}:
+            raise HomeAssistantError("A valid record approved for the current revision is required")
+        idle = self.idle_summary(record.setup_id)
+        if not record.samples or not idle["usable"]:
+            raise HomeAssistantError("A stored trace and reliable current idle measurement are required")
+        self._apply_idle_correction(
+            record, baseline=float(idle["baseline_power_w"]),
+            measurement_ids=idle["measurement_ids"], quality=idle["quality"],
+        )
+        record.analysis_history[-1]["replaced_by"] = actor_id
+        await self._async_save()
+        self._notify()
+
+    def _record_revision_status(self, record: Measurement) -> str:
+        return revision_status(
+            record, self.setups.get(record.setup_id),
+            self.batteries.get(record.battery_id) if isinstance(record, CalibrationRecord) else None,
+        )
+
+    def _invalid_idle_references(self, record: CalibrationRecord) -> list[str]:
+        """A historical correction may use old revisions, but never invalid data."""
+        return [record_id for record_id in record.idle_measurement_ids
+                if (source := self.idle_measurements.get(record_id)) is None
+                or not source.valid or not source.reliable or source.setup_id != record.setup_id]
+
+    def _measurement_row(
+        self, record: Measurement, used_ids: set[str] | None = None,
+        idle_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Expose the operational selection, including why a record is excluded."""
+        calibration = isinstance(record, CalibrationRecord)
+        record_id = record.calibration_id if calibration else record.measurement_id
+        setup = self.setups.get(record.setup_id)
+        battery = self.batteries.get(record.battery_id) if calibration else None
+        status = revision_status(record, setup, battery)
+        if used_ids is None:
+            summary = (self.calibration_summary(record.setup_id, record.battery_id, record.quantity)
+                       if calibration else self.idle_summary(record.setup_id))
+            used_ids = set(summary["record_ids" if calibration else "measurement_ids"])
+        idle = (idle_summary or self.idle_summary(record.setup_id)) if not calibration else {}
+        included = record_id in used_ids
+        used = included and (calibration or idle["usable"])
+        if not record.valid:
+            reason = "invalid"
+        elif status not in {"native", "approved"}:
+            reason = status
+        elif calibration and record.idle_correction_status != IDLE_CORRECTION_APPLIED:
+            reason = "pending_correction"
+        elif calibration and self._invalid_idle_references(record):
+            reason = "invalid_idle_reference"
+        elif calibration and (not math.isfinite(record.net_energy_wh) or record.net_energy_wh <= 0):
+            reason = "no_net_energy"
+        elif not calibration and included and not idle["usable"]:
+            reason = "unstable_baseline" if idle["quality"] == QUALITY_UNSTABLE else "provisional_baseline"
+        elif used:
+            reason = "used"
+        elif not calibration and record.below_detection_limit and record.reliable:
+            reason = "below_detection"
+        else:
+            reason = "lower_confidence" if calibration else "unreliable"
+        row = record.as_dict(include_samples=False)
+        # Historical payloads are fetched once on demand, not in every live update.
+        for key in ("setup_snapshot", "battery_snapshot", "revision_approvals", "validity_history", "analysis_history"):
+            row.pop(key, None)
+        row.update({
+            "record_type": "calibration" if calibration else "idle",
+            "current_setup_revision": setup.revision if setup else None,
+            "current_battery_revision": battery.revision if battery else None,
+            "revision_status": status, "used": used, "usage_reason": reason,
+            "can_approve": record.valid and status == "historical",
+            "has_trace": bool(record.samples), "sample_count": len(record.samples),
+        })
+        return row
+
+    def measurement_details(self, record_type: str, record_id: str) -> dict[str, Any]:
+        """Load metrics, provenance, decisions and a bounded historical curve."""
+        record = self._measurement(record_type, record_id)
+        setup = self.setups.get(record.setup_id)
+        battery = self.batteries.get(record.battery_id) if isinstance(record, CalibrationRecord) else None
+        detail = record.as_dict(include_samples=False)
+        detail.update(self._measurement_row(record))
+        detail["chart_samples"] = chart_samples(record.samples)
+        detail["current_setup_snapshot"] = setup.snapshot() if setup else None
+        detail["current_battery_snapshot"] = battery.snapshot() if battery else None
+        detail["revision_differences"] = revision_differences(record, setup, battery)
+        if isinstance(record, CalibrationRecord):
+            idle = self.idle_summary(record.setup_id)
+            detail["invalid_idle_reference_ids"] = self._invalid_idle_references(record)
+            detail["can_reanalyze"] = bool(
+                record.valid and record.samples and idle["usable"]
+                and self._record_revision_status(record) in {"native", "approved"}
+            )
+            detail["idle_sources"] = [
+                self._measurement_row(source) if (source := self.idle_measurements.get(source_id))
+                else {"measurement_id": source_id, "missing": True}
+                for source_id in record.idle_measurement_ids
+            ]
+            detail["idle_baseline_is_lower_bound"] = bool(
+                record.idle_measurement_ids and all(
+                    (source := self.idle_measurements.get(source_id)) is not None
+                    and source.below_detection_limit
+                    for source_id in record.idle_measurement_ids
+                )
+            )
+        else:
+            detail["dependent_calibration_ids"] = [
+                item.calibration_id for item in self.calibrations.values()
+                if record_id in item.idle_measurement_ids
+            ]
+        return deepcopy(detail)
 
     async def async_start_charge(self) -> None:
         """Start a normal relative-energy charge."""
@@ -652,6 +847,8 @@ class BatteryChargeManager:
             raise HomeAssistantError(
                 "No current calibration exists for this battery, setup, and quantity"
             )
+        if not self.idle_summary(setup.setup_id)["usable"]:
+            raise HomeAssistantError("A reliable, consistent current idle measurement is required for charging")
         target_energy_wh = float(median_wh) * self.target_percent / 100.0
         await self._async_begin_session(
             mode=SESSION_CHARGING,
@@ -721,7 +918,7 @@ class BatteryChargeManager:
         if setup is None:
             return 0
         idle = self.idle_summary(setup_id)
-        if not idle.get("reliable_count") or idle.get("baseline_power_w") is None:
+        if not idle["usable"]:
             return 0
         baseline = float(idle["baseline_power_w"])
         measurement_ids = list(idle.get("measurement_ids") or [])
@@ -730,7 +927,7 @@ class BatteryChargeManager:
         for record in self.calibrations.values():
             if (
                 record.setup_id != setup_id
-                or record.setup_revision != setup.revision
+                or self._record_revision_status(record) not in {"native", "approved"}
                 or record.idle_correction_status != IDLE_CORRECTION_PENDING
                 or not record.valid
                 or not record.samples
@@ -760,20 +957,24 @@ class BatteryChargeManager:
                 "analyzed_at": record.last_analyzed_at,
                 "idle_correction_status": record.idle_correction_status,
                 "idle_baseline_power_w": record.idle_baseline_power_w,
+                "idle_quality": record.idle_quality,
                 "idle_measurement_ids": list(record.idle_measurement_ids),
                 "gross_energy_wh": record.gross_energy_wh,
                 "idle_energy_wh": record.idle_energy_wh,
                 "net_energy_wh": record.net_energy_wh,
                 "charge_started_at": record.charge_started_at,
                 "charge_finished_at": record.charge_finished_at,
+                "candidate_end_at": record.candidate_end_at,
+                "end_detected_at": record.end_detected_at,
+                "peak_net_power_w": record.peak_net_power_w,
+                "energy_at_detection_wh": record.energy_at_detection_wh,
                 "charge_duration_seconds": record.charge_duration_seconds,
                 "end_method": record.end_method,
                 "confidence": record.confidence,
                 "algorithm_version": record.algorithm_version,
             }
         )
-        record.analysis_history = record.analysis_history[-10:]
-        samples = sorted(record.samples, key=lambda item: item.timestamp)
+        samples = sorted(deepcopy(record.samples), key=lambda item: item.timestamp)
         reference_at = record.switch_on_at or record.session_started_at
         peak_net = 0.0
         for sample in samples:
@@ -852,8 +1053,13 @@ class BatteryChargeManager:
         record.idle_correction_status = IDLE_CORRECTION_APPLIED
         record.energy_at_detection_wh = samples[-1].net_energy_wh
         record.peak_net_power_w = peak_net if peak_net > 0 else None
+        record.confidence = CONFIDENCE_LOW
+        record.end_method = "idle_reanalysis_unconfirmed"
+        record.candidate_end_at = None
+        record.end_detected_at = None
         if confirmed:
             record.candidate_end_at = endpoint.timestamp
+            record.end_detected_at = samples[-1].timestamp
             record.end_method = "retrospective_idle_reanalysis"
             record.confidence = (
                 CONFIDENCE_HIGH
@@ -904,7 +1110,7 @@ class BatteryChargeManager:
             if mode == SESSION_IDLE_MEASURING
             else self.idle_summary(setup.setup_id)
         )
-        has_reliable_idle = bool(idle_summary.get("reliable_count"))
+        has_reliable_idle = bool(idle_summary.get("usable"))
         idle_baseline = (
             float(idle_summary["baseline_power_w"])
             if has_reliable_idle
@@ -941,6 +1147,7 @@ class BatteryChargeManager:
                 else QUALITY_NONE
             ),
             session_started_at=now,
+            switch_on_at=now,
             last_sample_at=now,
             idle_measurement_mode=idle_mode,
             requested_duration_minutes=duration_minutes,
@@ -953,16 +1160,9 @@ class BatteryChargeManager:
         try:
             await self._async_switch_on_checked(setup)
         except Exception:
-            self._stop_tracking()
-            self.session.phase = PHASE_ERROR
-            self.session.valid = False
-            self.session.end_reason = "Could not switch charging setup on"
-            self.session.session_finished_at = self._now_iso()
-            self.session.mode = SESSION_IDLE
-            await self._async_save()
-            self._notify()
+            # The service may have succeeded physically before confirmation failed.
+            await self._async_abort_session("Could not confirm charging setup ON state")
             raise
-        self.session.switch_on_at = self._now_iso()
         self.session.phase = (
             PHASE_IDLE_MEASUREMENT
             if mode == SESSION_IDLE_MEASURING
@@ -1149,10 +1349,8 @@ class BatteryChargeManager:
             previous_raw = self.session.last_raw_energy_wh
             if previous_raw is None:
                 delta_wh = 0.0
-            elif raw_energy >= previous_raw:
-                delta_wh = raw_energy - previous_raw
             else:
-                delta_wh = raw_energy
+                delta_wh = raw_energy - previous_raw
             if delta_wh < -1e-9 or not math.isfinite(delta_wh):
                 await self._async_abort_session("Energy sensor moved backwards unexpectedly")
                 return
@@ -1221,7 +1419,15 @@ class BatteryChargeManager:
             completed = await self._async_evaluate_session(now)
             if completed:
                 return
-            await self._async_save()
+            # Evaluate every event, but checkpoint growing traces at most once
+            # per heartbeat. Starts, stops, edits and shutdown save immediately.
+            if (
+                source in {"start", "restart"}
+                or self._last_saved_at is None
+                or (now - self._last_saved_at).total_seconds()
+                >= DEFAULT_HEARTBEAT_SECONDS
+            ):
+                await self._async_save()
             self._notify()
 
     async def _async_evaluate_session(self, now: datetime) -> bool:
@@ -1676,6 +1882,7 @@ class BatteryChargeManager:
                 confidence=str(assessment["confidence"]),
                 valid=switch_off_confirmed,
                 end_reason=reason,
+                invalid_reason=("Smart plug OFF state was not confirmed" if not switch_off_confirmed else ""),
                 algorithm_version=ALGORITHM_VERSION,
                 samples=list(self.session.samples),
             )
@@ -1813,11 +2020,14 @@ class BatteryChargeManager:
             item
             for item in self.idle_measurements.values()
             if item.setup_id == setup_id
-            and item.setup_revision == setup.revision
+            and self._record_revision_status(item) in {"native", "approved"}
             and item.valid
         ]
         reliable = [item for item in current if item.reliable]
-        used = reliable or current
+        candidates = reliable or current
+        # A nondetect is a bound, not a point estimate that may pull a median to zero.
+        measured = [item for item in candidates if not item.below_detection_limit]
+        used = measured or candidates
         values = [item.baseline_power_w for item in used]
         baseline = median(values) if values else None
         upper_bounds = [
@@ -1837,13 +2047,16 @@ class BatteryChargeManager:
         outdated = sum(
             1
             for item in self.idle_measurements.values()
-            if item.setup_id == setup_id and item.setup_revision != setup.revision
+            if item.setup_id == setup_id
+            and self._record_revision_status(item) not in {"native", "approved"}
         )
         return {
             "baseline_power_w": baseline,
             "count": len(current),
             "reliable_count": len(reliable),
             "used_count": len(used),
+            "usable": bool(reliable and baseline is not None and quality != QUALITY_UNSTABLE),
+            "baseline_is_lower_bound": bool(used and not measured),
             "spread_percent": spread,
             "quality": quality,
             "outdated_count": outdated,
@@ -1868,12 +2081,12 @@ class BatteryChargeManager:
             item
             for item in self.calibrations.values()
             if item.setup_id == setup_id
-            and item.setup_revision == setup.revision
             and item.battery_id == battery_id
-            and item.battery_revision == battery.revision
+            and self._record_revision_status(item) in {"native", "approved"}
             and item.quantity == quantity
             and item.valid
             and item.net_energy_wh > 0
+            and math.isfinite(item.net_energy_wh)
         ]
         all_records.sort(key=lambda item: item.session_started_at or "")
         pending = [
@@ -1885,6 +2098,7 @@ class BatteryChargeManager:
             item
             for item in all_records
             if item.idle_correction_status == IDLE_CORRECTION_APPLIED
+            and not self._invalid_idle_references(item)
         ]
         trusted = [
             item
@@ -1944,15 +2158,15 @@ class BatteryChargeManager:
             if item.setup_id == setup_id
             and item.battery_id == battery_id
             and item.quantity == quantity
-            and (
-                item.setup_revision != setup.revision
-                or item.battery_revision != battery.revision
-            )
+            and self._record_revision_status(item) not in {"native", "approved"}
         )
         return {
             "count": len(used),
             "total_current_count": len(all_records),
             "pending_count": len(pending),
+            "invalid_idle_reference_count": sum(
+                bool(self._invalid_idle_references(item)) for item in all_records
+            ),
             "applied_count": len(records),
             "trusted_count": len(trusted),
             "excluded_low_confidence_count": len(records) - len(used),
@@ -2063,6 +2277,7 @@ class BatteryChargeManager:
         active_calibration = self.calibration_summary(
             setup_id, battery_id, self.selected_quantity
         )
+        active_idle = self.idle_summary(setup_id)
         return {
             "version": VERSION,
             "entry_id": self.entry.entry_id,
@@ -2074,24 +2289,27 @@ class BatteryChargeManager:
             "setups": setup_rows,
             "batteries": battery_rows,
             "idle_measurements": [
-                item.as_dict(include_samples=False)
+                self._measurement_row(item, set(active_idle["measurement_ids"]), active_idle)
                 for item in sorted(
                     self.idle_measurements.values(),
                     key=lambda value: value.started_at or "",
                     reverse=True,
-                )[:100]
+                )
+                if item.setup_id == setup_id
             ],
             "calibrations": [
-                item.as_dict(include_samples=False)
+                self._measurement_row(item, set(active_calibration["record_ids"]))
                 for item in sorted(
                     self.calibrations.values(),
                     key=lambda value: value.session_started_at or "",
                     reverse=True,
-                )[:100]
+                )
+                if item.setup_id == setup_id and item.battery_id == battery_id
+                and item.quantity == self.selected_quantity
             ],
             "charge_history": list(reversed(self.charge_history[-50:])),
             "session": session,
-            "active_idle_summary": self.idle_summary(setup_id),
+            "active_idle_summary": active_idle,
             "active_calibration_summary": active_calibration,
             "linear_model": self.linear_profile_model(setup_id, battery_id),
             "target_label": "relative_energy_percent",
@@ -2498,6 +2716,8 @@ class BatteryChargeManager:
             "count": 0,
             "reliable_count": 0,
             "used_count": 0,
+            "usable": False,
+            "baseline_is_lower_bound": False,
             "spread_percent": None,
             "quality": QUALITY_NONE,
             "outdated_count": 0,
