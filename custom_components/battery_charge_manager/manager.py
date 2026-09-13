@@ -86,6 +86,7 @@ from .const import (
     STORAGE_VERSION,
     VERSION,
 )
+from . import metering
 from .models import (
     BatteryType,
     CalibrationRecord,
@@ -315,6 +316,9 @@ class BatteryChargeManager:
                 "Charging switch was not confirmed on after restart"
             )
             return
+        if self.session.energy_source == "power":
+            await self._async_abort_session("Power integration interrupted by restart")
+            return
         self.session.restart_count += 1
         self.selected_setup_id = setup.setup_id
         if self.session.battery_id in self.batteries:
@@ -369,6 +373,11 @@ class BatteryChargeManager:
         switch_entity = str(data.get("switch_entity", "")).strip()
         energy_sensor = str(data.get("energy_sensor", "")).strip()
         power_sensor = self._optional_entity_id(data.get("power_sensor"))
+        voltage_sensor = self._optional_entity_id(data.get("voltage_sensor"))
+        current_sensor = self._optional_entity_id(data.get("current_sensor"))
+        for sensor_id, unit in ((voltage_sensor, "V"), (current_sensor, "A")):
+            if sensor_id and self._electrical_value(sensor_id, unit) is None:
+                raise HomeAssistantError(f"Invalid {unit} diagnostic sensor")
         temperature_sensor = self._optional_entity_id(
             data.get("temperature_sensor")
         )
@@ -385,6 +394,8 @@ class BatteryChargeManager:
                 switch_entity=switch_entity,
                 energy_sensor=energy_sensor,
                 power_sensor=power_sensor,
+                voltage_sensor=voltage_sensor,
+                current_sensor=current_sensor,
                 temperature_sensor=temperature_sensor,
                 charger_model=str(data.get("charger_model", "")).strip(),
                 cable_description=str(data.get("cable_description", "")).strip(),
@@ -410,6 +421,7 @@ class BatteryChargeManager:
                 existing.charger_model,
                 existing.cable_description,
                 tuple(existing.port_labels),
+                existing.voltage_sensor, existing.current_sensor,
             )
             technical_after = (
                 switch_entity,
@@ -419,6 +431,7 @@ class BatteryChargeManager:
                 str(data.get("charger_model", "")).strip(),
                 str(data.get("cable_description", "")).strip(),
                 tuple(labels),
+                voltage_sensor, current_sensor,
             )
             if technical_before != technical_after:
                 existing.revision += 1
@@ -426,6 +439,8 @@ class BatteryChargeManager:
             existing.switch_entity = switch_entity
             existing.energy_sensor = energy_sensor
             existing.power_sensor = power_sensor
+            existing.voltage_sensor = voltage_sensor
+            existing.current_sensor = current_sensor
             existing.temperature_sensor = temperature_sensor
             existing.charger_model = technical_after[4]
             existing.cable_description = technical_after[5]
@@ -855,6 +870,8 @@ class BatteryChargeManager:
             setup=setup,
             battery=battery,
             target_energy_wh=target_energy_wh,
+            source_decision={**summary.get("source_decision", {}),
+                             "record_ids": list(summary.get("record_ids", []))},
         )
 
     async def async_start_calibration(self) -> None:
@@ -953,6 +970,7 @@ class BatteryChargeManager:
         """Recalculate derived values while retaining the raw trace."""
         record.analysis_history.append(
             {
+                "metering_comparison": deepcopy(record.metering_comparison),
                 "analysis_revision": record.analysis_revision,
                 "analyzed_at": record.last_analyzed_at,
                 "idle_correction_status": record.idle_correction_status,
@@ -1069,6 +1087,9 @@ class BatteryChargeManager:
         record.analysis_revision += 1
         record.last_analyzed_at = self._now_iso()
         record.algorithm_version = ALGORITHM_VERSION
+        record.metering_comparison = metering.compare(
+            record.samples, record.charge_finished_at, baseline,
+            record.switch_on_at or record.session_started_at)
 
     @staticmethod
     def _record_sample_at_or_before(
@@ -1097,6 +1118,7 @@ class BatteryChargeManager:
         duration_minutes: float | None = None,
         auto_min_minutes: float | None = None,
         auto_max_minutes: float | None = None,
+        source_decision: dict | None = None,
     ) -> None:
         """Validate hardware, create a persistent session, and switch on."""
         self._validate_runtime_setup(setup)
@@ -1134,6 +1156,8 @@ class BatteryChargeManager:
             ),
             target_percent=self.target_percent,
             target_energy_wh=target_energy_wh,
+            energy_source=(source_decision or {}).get("source", "meter"),
+            source_decision=deepcopy(source_decision or {}),
             last_raw_energy_wh=raw_energy,
             idle_baseline_power_w=idle_baseline,
             idle_measurement_ids=(
@@ -1154,6 +1178,7 @@ class BatteryChargeManager:
             auto_min_minutes=auto_min_minutes,
             auto_max_minutes=auto_max_minutes,
         )
+        self.session.source_decision["diagnostic_sensors"] = self._diagnostic_sensors(setup)
         await self._async_save()
         self._start_tracking()
         self._schedule_timeout()
@@ -1212,6 +1237,52 @@ class BatteryChargeManager:
             self._notify()
         finally:
             self._finalizing = False
+
+    def _electrical_value(self, entity_id: str | None, unit: str) -> float | None:
+        """Read optional electrical diagnostics; never use them for charge control."""
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if state is None:
+            return None
+        factor = {unit: 1.0, f"m{unit}": .001, f"k{unit}": 1000.0}.get(
+            state.attributes.get("unit_of_measurement"))
+        try:
+            value = float(state.state) * factor if factor is not None else None
+        except (ValueError, TypeError):
+            return None
+        return value if metering.finite(value) else None
+
+    def _diagnostic_sensors(self, setup: ChargerSetup) -> list[str | None]:
+        """Use explicit selectors or unambiguous RMS sensors on the same device."""
+        voltage, current = setup.voltage_sensor, setup.current_sensor
+        try:
+            from homeassistant.helpers import entity_registry as er
+            registry = er.async_get(self.hass)
+            entry = registry.async_get(setup.energy_sensor)
+            if entry is None or not entry.device_id:
+                return [voltage, current]
+            entries = er.async_entries_for_device(registry, entry.device_id)
+            for unit, chosen in (("V", voltage), ("A", current)):
+                if chosen:
+                    continue
+                candidates = []
+                for item in entries:
+                    name = item.entity_id.lower()
+                    # Avoid ActiveCurrent: U*I is only labelled apparent for RMS I.
+                    appropriate = ("voltage" in name if unit == "V" else
+                                   "rms_current" in name or "effective_current" in name
+                                   or "apparent_current" in name)
+                    if appropriate and self._electrical_value(item.entity_id, unit) is not None:
+                        candidates.append(item.entity_id)
+                rms = [x for x in candidates if "rms_" in x or "effective_" in x]
+                candidates = rms or candidates
+                if len(candidates) == 1:
+                    if unit == "V":
+                        voltage = candidates[0]
+                    else:
+                        current = candidates[0]
+        except ImportError:
+            pass
+        return [voltage, current]
 
     def _start_tracking(self) -> None:
         """Attach all sensor, switch, and heartbeat listeners."""
@@ -1354,7 +1425,43 @@ class BatteryChargeManager:
             if delta_wh < -1e-9 or not math.isfinite(delta_wh):
                 await self._async_abort_session("Energy sensor moved backwards unexpectedly")
                 return
-            self.session.gross_energy_wh += max(0.0, delta_wh)
+            voltage_id, current_id = self.session.source_decision.get(
+                "diagnostic_sensors", (setup.voltage_sensor, setup.current_sensor)
+            )
+            voltage_v = self._electrical_value(voltage_id, "V")
+            current_a = self._electrical_value(current_id, "A")
+            power_state = self.hass.states.get(setup.power_sensor) if setup.power_sensor else None
+            reported_at = (getattr(power_state, "last_reported", None)
+                           or getattr(power_state, "last_updated", None))
+            fresh = bool(power_state is not None and (
+                reported_at is None or 0 <= (now - reported_at).total_seconds()
+                <= metering.MAX_REPORT_AGE_SECONDS
+            ))
+            if (self.session.energy_source == "power"
+                    and not self.session.metering.get("power_started")
+                    and self._elapsed_seconds(self.session.switch_on_at, now)
+                    > metering.MAX_REPORT_AGE_SECONDS):
+                await self._async_abort_session("No fresh power report within startup deadline")
+                return
+            previous_meter = self.session.metering.get("meter_wh", self.session.gross_energy_wh)
+            metering.advance(self.session.metering, now.timestamp(), power_w,
+                             voltage_v, current_a, fresh=fresh, restart=source == "restart",
+                             reported_at=reported_at.timestamp() if reported_at else None,
+                             raw_energy=raw_energy)
+            self.session.metering["meter_wh"] = previous_meter + max(0.0, delta_wh)
+            self.session.metering["power_report_fresh"] = fresh
+            if self.session.energy_source == "power":
+                if not self.session.metering["power_valid"]:
+                    waiting = (not self.session.metering.get("power_started")
+                               and not self.session.metering.get("gaps")
+                               and self._elapsed_seconds(self.session.switch_on_at, now)
+                               <= metering.MAX_REPORT_AGE_SECONDS)
+                    if not waiting:
+                        await self._async_abort_session("Power integration has missing or stale data")
+                        return
+                self.session.gross_energy_wh = self.session.metering["power_wh"]
+            else:
+                self.session.gross_energy_wh = self.session.metering["meter_wh"]
             self.session.last_raw_energy_wh = raw_energy
             baseline = (
                 0.0
@@ -1391,6 +1498,16 @@ class BatteryChargeManager:
                 )
             sample = MeasurementSample(
                 timestamp=now_iso,
+                power_energy_wh=self.session.metering.get("power_wh") if setup.power_sensor else None,
+                apparent_energy_vah=(self.session.metering.get("apparent_vah")
+                                     if self.session.metering.get("apparent_valid") else None),
+                voltage_v=voltage_v,
+                current_a=current_a,
+                power_integral_valid=self.session.metering.get("power_valid", False),
+                power_report_fresh=fresh,
+                metering_quality={key: self.session.metering.get(key) for key in (
+                    "covered_seconds", "total_seconds", "max_power_step_wh",
+                    "meter_step_wh", "report_count", "max_report_interval_seconds")},
                 raw_energy_wh=raw_energy,
                 gross_energy_wh=self.session.gross_energy_wh,
                 idle_energy_wh=self.session.idle_energy_wh,
@@ -1823,6 +1940,9 @@ class BatteryChargeManager:
             )
             if record.net_energy_wh <= 0:
                 raise HomeAssistantError("Calibration endpoint contains no net energy")
+            record.metering_comparison = metering.compare(
+                record.samples, record.charge_finished_at, baseline_for_math,
+                record.switch_on_at or record.session_started_at)
             self.calibrations[record.calibration_id] = record
             self.session.phase = (
                 PHASE_FINISHED if switch_off_confirmed else PHASE_ERROR
@@ -2107,7 +2227,15 @@ class BatteryChargeManager:
             and not item.legacy
         ]
         used = trusted or records
-        values = [item.net_energy_wh for item in used]
+        parallel = [item for item in used if item.metering_comparison]
+        decision = metering.select_source([item.metering_comparison for item in parallel])
+        if not setup.power_sensor:
+            decision.update(source="meter", reason="no_power_sensor")
+        if decision["source"] == "power":
+            used = parallel
+            values = [item.metering_comparison["power_net_wh"] for item in used]
+        else:
+            values = [item.net_energy_wh for item in used]
         durations = [
             item.charge_duration_seconds
             for item in used
@@ -2162,6 +2290,8 @@ class BatteryChargeManager:
         )
         return {
             "count": len(used),
+            "energy_source": decision["source"],
+            "source_decision": decision,
             "total_current_count": len(all_records),
             "pending_count": len(pending),
             "invalid_idle_reference_count": sum(
@@ -2197,13 +2327,15 @@ class BatteryChargeManager:
         if setup is None:
             return {"available": False}
         points: list[tuple[float, float]] = []
+        sources: set[str] = set()
         for quantity in range(1, len(setup.port_labels) + 1):
             summary = self.calibration_summary(setup_id, battery_id, quantity)
             value = summary.get("median_net_energy_wh")
             if value is not None:
                 points.append((float(quantity), float(value)))
-        if len(points) < 2:
-            return {"available": False, "points": points}
+                sources.add(summary.get("energy_source", "meter"))
+        if len(points) < 2 or len(sources) > 1:
+            return {"available": False, "points": points, "reason": "insufficient_same_source_profiles"}
         mean_x = sum(x for x, _ in points) / len(points)
         mean_y = sum(y for _, y in points) / len(points)
         denominator = sum((x - mean_x) ** 2 for x, _ in points)
@@ -2320,6 +2452,9 @@ class BatteryChargeManager:
         self.charge_history.append(
             {
                 "session_id": self.session.session_id,
+                "energy_source": self.session.energy_source,
+                "source_decision": deepcopy(self.session.source_decision),
+                "metering": deepcopy(self.session.metering),
                 "mode": self.session.mode,
                 "setup_id": self.session.setup_id,
                 "battery_id": self.session.battery_id,

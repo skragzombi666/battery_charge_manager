@@ -49,10 +49,25 @@ class MeasurementSample:
     temperature_c: float | None = None
     switch_state: str | None = None
 
+    power_energy_wh: float | None = None
+    apparent_energy_vah: float | None = None
+    voltage_v: float | None = None
+    current_a: float | None = None
+    power_integral_valid: bool = False
+    power_report_fresh: bool = False
+    metering_quality: dict[str, Any] = field(default_factory=dict)
+
     def as_dict(self) -> dict[str, Any]:
         """Serialize sample."""
         return {
             "timestamp": self.timestamp,
+            "power_energy_wh": self.power_energy_wh,
+            "apparent_energy_vah": self.apparent_energy_vah,
+            "voltage_v": self.voltage_v,
+            "current_a": self.current_a,
+            "power_integral_valid": self.power_integral_valid,
+            "power_report_fresh": self.power_report_fresh,
+            "metering_quality": self.metering_quality,
             "raw_energy_wh": self.raw_energy_wh,
             "gross_energy_wh": round(self.gross_energy_wh, 6),
             "idle_energy_wh": round(self.idle_energy_wh, 6),
@@ -68,6 +83,13 @@ class MeasurementSample:
         """Deserialize sample."""
         return cls(
             timestamp=str(data.get("timestamp", "")),
+            power_energy_wh=_float_or_none(data.get("power_energy_wh")),
+            apparent_energy_vah=_float_or_none(data.get("apparent_energy_vah")),
+            voltage_v=_float_or_none(data.get("voltage_v")),
+            current_a=_float_or_none(data.get("current_a")),
+            power_integral_valid=bool(data.get("power_integral_valid", False)),
+            power_report_fresh=bool(data.get("power_report_fresh", False)),
+            metering_quality=dict(data.get("metering_quality", {})),
             raw_energy_wh=_float_or_none(data.get("raw_energy_wh")),
             gross_energy_wh=float(data.get("gross_energy_wh", 0.0)),
             idle_energy_wh=float(data.get("idle_energy_wh", 0.0)),
@@ -175,6 +197,8 @@ class ChargerSetup:
     switch_entity: str
     energy_sensor: str
     power_sensor: str | None = None
+    voltage_sensor: str | None = None
+    current_sensor: str | None = None
     temperature_sensor: str | None = None
     charger_model: str = ""
     cable_description: str = ""
@@ -195,6 +219,8 @@ class ChargerSetup:
             "switch_entity": self.switch_entity,
             "energy_sensor": self.energy_sensor,
             "power_sensor": self.power_sensor,
+            "voltage_sensor": self.voltage_sensor,
+            "current_sensor": self.current_sensor,
             "temperature_sensor": self.temperature_sensor,
             "charger_model": self.charger_model,
             "cable_description": self.cable_description,
@@ -228,6 +254,8 @@ class ChargerSetup:
             switch_entity=str(data.get("switch_entity", "")),
             energy_sensor=str(data.get("energy_sensor", "")),
             power_sensor=data.get("power_sensor") or None,
+            voltage_sensor=data.get("voltage_sensor") or None,
+            current_sensor=data.get("current_sensor") or None,
             temperature_sensor=data.get("temperature_sensor") or None,
             charger_model=str(data.get("charger_model", "")),
             cable_description=str(data.get("cable_description", "")),
@@ -403,12 +431,14 @@ class CalibrationRecord:
     revision_approvals: list[dict[str, Any]] = field(default_factory=list)
     validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
+    metering_comparison: dict[str, Any] = field(default_factory=dict)
     samples: list[MeasurementSample] = field(default_factory=list)
 
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize calibration."""
         data: dict[str, Any] = {
             "calibration_id": self.calibration_id,
+            "metering_comparison": self.metering_comparison,
             "setup_id": self.setup_id,
             "setup_revision": self.setup_revision,
             "setup_snapshot": self.setup_snapshot,
@@ -466,6 +496,7 @@ class CalibrationRecord:
         """Deserialize calibration."""
         return cls(
             calibration_id=str(data["calibration_id"]),
+            metering_comparison=dict(data.get("metering_comparison", {})),
             setup_id=str(data.get("setup_id", "")),
             setup_revision=_int_or(data.get("setup_revision"), 1),
             setup_snapshot=dict(data.get("setup_snapshot", {})),
@@ -579,6 +610,9 @@ class ChargeSession:
     requested_duration_minutes: float | None = None
     auto_min_minutes: float | None = None
     auto_max_minutes: float | None = None
+    metering: dict[str, Any] = field(default_factory=dict)
+    energy_source: str = "meter"
+    source_decision: dict[str, Any] = field(default_factory=dict)
     samples: list[MeasurementSample] = field(default_factory=list)
 
     @property
@@ -590,6 +624,9 @@ class ChargeSession:
         """Serialize session."""
         data: dict[str, Any] = {
             "session_id": self.session_id,
+            "metering": self.metering,
+            "energy_source": self.energy_source,
+            "source_decision": self.source_decision,
             "mode": self.mode,
             "phase": self.phase,
             "setup_id": self.setup_id,
@@ -649,6 +686,9 @@ class ChargeSession:
         )
         return cls(
             session_id=data.get("session_id"),
+            metering=dict(data.get("metering", {})),
+            energy_source=str(data.get("energy_source", "meter")),
+            source_decision=dict(data.get("source_decision", {})),
             mode=str(data.get("mode", SESSION_IDLE)),
             phase=str(data.get("phase", PHASE_IDLE)),
             setup_id=data.get("setup_id"),

@@ -8,7 +8,7 @@ It is designed for batteries with their own charging electronics, such as USB-C 
 
 ## Current version
 
-**0.1.7**
+**0.2.0**
 
 ## Main interface
 
@@ -38,6 +38,17 @@ button opens the HA sidebar.
 The integration also creates regular Home Assistant entities for automations, notifications, and custom dashboards.
 
 ## Features
+
+### Parallel metering (0.2.0)
+
+The integration records the cumulative energy meter, integrated active power, and
+optional voltage/current diagnostics in parallel. After at least three qualifying
+calibrations it automatically selects the practically better-resolved path using
+coverage, report cadence, consistency and repeatability. This does not establish
+absolute accuracy. Apparent energy from voltage × RMS current is diagnostic only.
+The chosen source and matching calibration reference are fixed for each charge.
+Existing meter-only profiles remain usable. See [0.2.0 measurement policy and
+update behaviour](docs/version-0.2.0.md) for thresholds and limitations.
 
 ### Charging setups
 
