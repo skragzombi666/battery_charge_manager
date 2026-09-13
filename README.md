@@ -8,7 +8,7 @@ It is designed for batteries with their own charging electronics, such as USB-C 
 
 ## Current version
 
-**0.2.0**
+**0.3.0**
 
 ## Main interface
 
@@ -38,6 +38,14 @@ button opens the HA sidebar.
 The integration also creates regular Home Assistant entities for automations, notifications, and custom dashboards.
 
 ## Features
+
+### Measurement export and calibration comments (0.3.0)
+
+Management provides one JSON download of all retained measurement data, including
+invalid records, historical revisions, stored traces, metadata and audit histories.
+Calibration comments can be entered at start and edited later in the record details;
+changes retain their history and do not affect calculations. See
+[0.3.0 export and comments](docs/version-0.3.0.md).
 
 ### Parallel metering (0.2.0)
 

@@ -21,6 +21,8 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     """Register frontend commands."""
     for command in (
         ws_get_state,
+        ws_export_measurements,
+        ws_set_calibration_comment,
         ws_subscribe,
         ws_save_setup,
         ws_delete_setup,
@@ -298,7 +300,8 @@ async def ws_start_charge(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command(
-    {vol.Required("type"): f"{DOMAIN}/start_calibration"}
+    {vol.Required("type"): f"{DOMAIN}/start_calibration",
+     vol.Optional("comment", default=""): str}
 )
 @websocket_api.async_response
 async def ws_start_calibration(
@@ -308,7 +311,7 @@ async def ws_start_calibration(
 ) -> None:
     """Start automatic calibration."""
     try:
-        await _manager(hass).async_start_calibration()
+        await _manager(hass).async_start_calibration(msg.get("comment", ""), actor_id=connection.user.id)
     except HomeAssistantError as err:
         _send_error(connection, msg, err)
         return
@@ -476,6 +479,40 @@ async def ws_reanalyze_calibration(hass, connection, msg) -> None:
         await _manager(hass).async_reanalyze_calibration(
             msg["record_id"], expected_setup_revision=msg["expected_setup_revision"],
             expected_battery_revision=msg["expected_battery_revision"],
+            actor_id=connection.user.id,
+        )
+    except HomeAssistantError as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/export_measurements"})
+@callback
+def ws_export_measurements(hass, connection, msg) -> None:
+    """Export all retained measurement data, including inactive revisions."""
+    try:
+        result = _manager(hass).export_measurements()
+    except HomeAssistantError as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/set_calibration_comment",
+    vol.Required("record_id"): str,
+    vol.Required("comment"): str,
+    vol.Required("expected_comment"): str,
+})
+@websocket_api.async_response
+async def ws_set_calibration_comment(hass, connection, msg) -> None:
+    """Save an annotation with optimistic concurrency protection."""
+    try:
+        await _manager(hass).async_set_calibration_comment(
+            msg["record_id"], msg["comment"], expected_comment=msg["expected_comment"],
             actor_id=connection.user.id,
         )
     except HomeAssistantError as err:

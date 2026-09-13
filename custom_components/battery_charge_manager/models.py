@@ -432,11 +432,15 @@ class CalibrationRecord:
     validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
     metering_comparison: dict[str, Any] = field(default_factory=dict)
+    comment: str = ""
+    comment_history: list[dict[str, Any]] = field(default_factory=list)
     samples: list[MeasurementSample] = field(default_factory=list)
 
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize calibration."""
         data: dict[str, Any] = {
+            "comment": self.comment,
+            "comment_history": self.comment_history,
             "calibration_id": self.calibration_id,
             "metering_comparison": self.metering_comparison,
             "setup_id": self.setup_id,
@@ -495,6 +499,8 @@ class CalibrationRecord:
     def from_dict(cls, data: dict[str, Any]) -> "CalibrationRecord":
         """Deserialize calibration."""
         return cls(
+            comment=str(data.get("comment", "")),
+            comment_history=[dict(item) for item in data.get("comment_history", [])],
             calibration_id=str(data["calibration_id"]),
             metering_comparison=dict(data.get("metering_comparison", {})),
             setup_id=str(data.get("setup_id", "")),
@@ -613,6 +619,8 @@ class ChargeSession:
     metering: dict[str, Any] = field(default_factory=dict)
     energy_source: str = "meter"
     source_decision: dict[str, Any] = field(default_factory=dict)
+    comment: str = ""
+    comment_history: list[dict[str, Any]] = field(default_factory=list)
     samples: list[MeasurementSample] = field(default_factory=list)
 
     @property
@@ -623,6 +631,8 @@ class ChargeSession:
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize session."""
         data: dict[str, Any] = {
+            "comment": self.comment,
+            "comment_history": self.comment_history,
             "session_id": self.session_id,
             "metering": self.metering,
             "energy_source": self.energy_source,
@@ -685,6 +695,8 @@ class ChargeSession:
             data.get("gross_energy_wh", data.get("delivered_energy_wh", 0.0))
         )
         return cls(
+            comment=str(data.get("comment", "")),
+            comment_history=[dict(item) for item in data.get("comment_history", [])],
             session_id=data.get("session_id"),
             metering=dict(data.get("metering", {})),
             energy_source=str(data.get("energy_source", "meter")),

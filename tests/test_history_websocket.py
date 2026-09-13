@@ -20,7 +20,7 @@ def handler_namespace():
     names = {
         "_manager", "_send_error", "ws_get_measurement",
         "ws_set_measurement_validity", "ws_set_measurement_revision_approval",
-        "ws_reanalyze_calibration",
+        "ws_reanalyze_calibration", "ws_export_measurements", "ws_set_calibration_comment", "ws_start_calibration",
     }
     parsed = ast.parse(path.read_text())
     functions = [node for node in parsed.body
@@ -107,5 +107,16 @@ class HistoryWebsocketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.replies[-1][:3], ("error", 6, "home_assistant_error"))
 
 
-if __name__ == "__main__":
-    unittest.main()
+    async def test_export_and_comment_handlers(self):
+        self.hass.config = SimpleNamespace(time_zone="Europe/Zurich")
+        record = CalibrationRecord("cal", "setup", 1, self.setup.snapshot(),
+                                   "battery", 1, self.battery.snapshot(), 1, ["A"])
+        self.manager.calibrations["cal"] = record
+        await HANDLERS["ws_set_calibration_comment"](self.hass, self.connection,
+            {"id": 10, "record_id": "cal", "comment": "USB reference", "expected_comment": ""})
+        self.assertEqual(record.comment_history[0]["actor_id"], "reviewer")
+        HANDLERS["ws_export_measurements"](self.hass, self.connection, {"id": 11})
+        self.assertEqual(self.replies[-1][2]["calibrations"][0]["comment"], "USB reference")
+        await HANDLERS["ws_set_calibration_comment"](self.hass, self.connection,
+            {"id": 12, "record_id": "missing", "comment": "", "expected_comment": ""})
+        self.assertEqual(self.replies[-1][0], "error")
