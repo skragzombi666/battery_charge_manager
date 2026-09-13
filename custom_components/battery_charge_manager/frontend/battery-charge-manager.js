@@ -3,6 +3,33 @@ const BCM_PANEL_PATH = "/battery-charge-manager";
 
 const TEXT = {
   de: {
+    parallel: "Messwertvergleich",
+    meterSource: "Energiezähler",
+    powerSource: "Energie aus Wirkleistung",
+    apparentSource: "U × I · nur Plausibilität",
+    chosenSource: "Verwendete Messgrundlage",
+    sourceHint: "Automatische Auswahl nach Datenqualität; keine nachgewiesene absolute Genauigkeit.",
+    meterStep: "Beobachteter Zählerschritt",
+    coverage: "Datenabdeckung Wirkleistung",
+    voltageSensor: "Effektivspannung (optional, sonst automatisch)",
+    currentSensor: "Effektivstrom (optional, sonst automatisch)",
+    diagnosticHint: "Spannung × Effektivstrom ergibt Scheinleistung. Nur zur Plausibilitätsprüfung, niemals als Ladeziel.",
+    insufficient_calibrations: "Mindestens drei passende Kalibrationen mit parallelen Messdaten erforderlich.",
+    incomplete_power_data: "Wirkleistungsdaten fehlen oder sind nicht vollständig verwendbar.",
+    meter_sufficiently_fine: "Kein ausreichender Auflösungsvorteil gegenüber dem Energiezähler.",
+    sources_disagree: "Die Energiequellen weichen zu stark voneinander ab.",
+    power_not_repeatable: "Die berechnete Ladeenergie schwankt zu stark.",
+    finer_repeatable_power: "Wirkleistungsdaten sind feiner aufgelöst und ausreichend wiederholbar.",
+    no_power_sensor: "Kein Wirkleistungssensor eingerichtet.",
+    no_parallel_trace: "Für diese Messung fehlen parallele Aufzeichnungen.",
+    power_data_gap: "Messlücke oder veraltete Wirkleistungsdaten.",
+    no_power_energy: "Keine nutzbare Energie aus Wirkleistung.",
+    counter_resolution_unknown: "Auflösung des Energiezählers noch nicht beurteilbar.",
+    power_updates_coarse: "Leistungswerte werden zu selten aktualisiert.",
+    usable: "Für den Vergleich verwendbar.",
+    counterNet: "Nettoenergie laut Zähler",
+    powerNet: "Nettoenergie aus Wirkleistung",
+    powerInvalid: "Unvollständig – nicht zur Steuerung verwendbar.",
     title: "Battery Charge Manager",
     charge: "Laden",
     batteries: "Akkus",
@@ -150,6 +177,33 @@ const TEXT = {
     automaticExplanation: "Die Messung läuft mindestens bis zur Mindestdauer und endet erst, wenn der Messwert über mehrere Zeitfenster stabil und für die Sensorauflösung ausreichend belastbar ist. Spätestens bei der Maximaldauer wird sie beendet.",
   },
   en: {
+    parallel: "Measurement comparison",
+    meterSource: "Energy meter",
+    powerSource: "Integrated active power",
+    apparentSource: "V × I · plausibility only",
+    chosenSource: "Selected measurement source",
+    sourceHint: "Automatic selection by data quality; absolute accuracy is not established.",
+    meterStep: "Observed counter increment",
+    coverage: "Active-power data coverage",
+    voltageSensor: "RMS voltage (optional, otherwise automatic)",
+    currentSensor: "RMS current (optional, otherwise automatic)",
+    diagnosticHint: "Voltage × RMS current gives apparent power. For plausibility only, never a charge target.",
+    insufficient_calibrations: "At least three matching calibrations with parallel data are required.",
+    incomplete_power_data: "Active-power data are missing or not fully usable.",
+    meter_sufficiently_fine: "No sufficient resolution advantage over the energy meter.",
+    sources_disagree: "Energy sources disagree too strongly.",
+    power_not_repeatable: "Integrated charge energy varies too much.",
+    finer_repeatable_power: "Active-power data are finer and sufficiently repeatable.",
+    no_power_sensor: "No active-power sensor configured.",
+    no_parallel_trace: "No parallel trace is available for this measurement.",
+    power_data_gap: "Missing or stale active-power data.",
+    no_power_energy: "No usable integrated active-power energy.",
+    counter_resolution_unknown: "Counter resolution cannot yet be assessed.",
+    power_updates_coarse: "Power reports are too infrequent.",
+    usable: "Usable for comparison.",
+    counterNet: "Net energy from meter",
+    powerNet: "Net energy from active power",
+    powerInvalid: "Incomplete – not usable for charge control.",
     title: "Battery Charge Manager",
     charge: "Charge",
     batteries: "Batteries",
@@ -874,6 +928,7 @@ class BcmBase extends HTMLElement {
       if (kind === "switch") return state.entity_id.startsWith("switch.");
       if (kind === "energy") return state.entity_id.startsWith("sensor.") && state.attributes?.device_class === "energy";
       if (kind === "power") return state.entity_id.startsWith("sensor.") && state.attributes?.device_class === "power";
+      if (["voltage","current"].includes(kind)) return state.entity_id.startsWith("sensor.") && state.attributes?.device_class === kind;
       if (kind === "temperature") return state.entity_id.startsWith("sensor.") && state.attributes?.device_class === "temperature";
       return false;
     }).sort((a, b) => String(a.attributes?.friendly_name || a.entity_id).localeCompare(String(b.attributes?.friendly_name || b.entity_id)));
@@ -1050,7 +1105,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const ports = (session.ports?.length ? session.ports : selectedPorts(s)).join(" + ") || "–";
     return `<div class="bcm-grid">
       <section class="bcm-card">
-        <h2>${this.t("liveCharge")}</h2>
+        <h2>${this.t("liveCharge")}</h2><p>${this.t("chosenSource")}: <strong>${this.t(session.energy_source === "power" ? "powerSource" : "meterSource")}</strong></p>
         <div class="bcm-port-note">${this.t("connectTo")}: ${esc(ports)}</div>
         <div class="bcm-row"><span>${this.t("phase")}</span><strong>${esc(phaseLabel(session.phase,this.language))}</strong></div>
         <div class="bcm-progress"><div style="width:${progress}%"></div></div>
@@ -1063,7 +1118,7 @@ class BatteryChargeManagerPanel extends BcmBase {
           ${this.metric(this.t("gross"), `${fmt(session.gross_energy_wh)} Wh`)}
           ${this.metric(this.t("idleEnergy"), `${fmt(session.idle_energy_wh)} Wh`)}
         </div>
-        ${renderSessionChart(session,"charging",this.language)}
+        ${renderSessionChart(session,"charging",this.language)}${this.parallelLive(session)}
         <div class="bcm-actions"><button class="bcm-btn danger" data-action="stop" ${this._busy ? "disabled" : ""}>${this.t("stop")}</button></div>
       </section>
       <section class="bcm-card">
@@ -1147,7 +1202,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       ? `&lt; ${fmt(assessment.upper_bound_power_w,3)} W`
       : `${fmt(assessment.median_power_w ?? assessment.average_power_w,3)} W`;
     return `
-      <h3>${this.t("liveMeasurement")}</h3><div class="bcm-row"><span>${this.t("setup")}</span><strong>${esc(setup?.name || "–")}</strong></div>
+      <h3>${this.t("liveMeasurement")}</h3>${this.parallelLive(session)}<div class="bcm-row"><span>${this.t("setup")}</span><strong>${esc(setup?.name || "–")}</strong></div>
       <div class="bcm-row"><span>${this.t("measurementMode")}</span><strong>${fixed ? this.t("fixed") : this.t("auto")}</strong></div>
       ${fixedProgress !== null ? `<div class="bcm-progress"><div style="width:${fixedProgress}%"></div></div><div class="bcm-row"><span>${this.t("progress")}</span><strong>${fmt(fixedProgress,1)}%</strong></div>` : ""}
       <div class="bcm-metrics">
@@ -1194,7 +1249,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const ports = (session.ports?.length ? session.ports : selectedPorts(s)).join(" + ") || "–";
     const correction = session.idle_baseline_power_w === null || session.idle_baseline_power_w === undefined ? this.t("pendingCorrection") : this.t("valid");
     return `
-      <h2>${this.t("liveCalibration")}</h2><div class="bcm-row"><span>${this.t("setup")}</span><strong>${esc(setup?.name || "–")}</strong></div>
+      <h2>${this.t("liveCalibration")}</h2>${this.parallelLive(session)}<div class="bcm-row"><span>${this.t("setup")}</span><strong>${esc(setup?.name || "–")}</strong></div>
       <div class="bcm-row"><span>${this.t("battery")}</span><strong>${esc(battery?.name || "–")}</strong></div>
       <div class="bcm-row"><span>${this.t("quantity")}</span><strong>${session.quantity || s.selected_quantity}</strong></div>
       <div class="bcm-port-note">${this.t("connectTo")}: ${esc(ports)}</div>
@@ -1231,7 +1286,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const active = s.session.mode === "calibrating";
     const rows = s.calibrations.filter((item) => item.setup_id === s.selected_setup_id && item.battery_id === s.selected_battery_id && item.quantity === s.selected_quantity);
     const leftContent = active ? this.renderCalibrationSession(admin) : this.renderCalibrationStart(admin);
-    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("calibrations")}</h2>${leftContent}</section><section class="bcm-card"><h2>${this.t("quality")}</h2><div class="bcm-metrics">${this.metric(this.t("calibrationValue"), `${fmt(summary.median_net_energy_wh)} Wh`)}${this.metric(this.t("calibrationDuration"), fmtDuration(summary.median_charge_duration_seconds))}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("pendingCorrection"), String(summary.pending_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}${this.metric(this.t("stdev"), `${fmt(summary.stdev_net_energy_wh,3)} Wh`)}${this.metric(this.t("drift"), `${fmt(summary.drift_percent,1)}%`)}${this.metric(this.t("trend"), esc(summary.trend || "not_assessable"))}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p>${this.linearModel()}</section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.calibrationTable(rows, admin)}</section>`;
+    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("calibrations")}</h2>${leftContent}</section><section class="bcm-card"><h2>${this.t("quality")}</h2><div class="bcm-metrics">${this.metric(this.t("calibrationValue"), `${fmt(summary.median_net_energy_wh)} Wh`)}${this.metric(this.t("calibrationDuration"), fmtDuration(summary.median_charge_duration_seconds))}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("pendingCorrection"), String(summary.pending_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}${this.metric(this.t("stdev"), `${fmt(summary.stdev_net_energy_wh,3)} Wh`)}${this.metric(this.t("drift"), `${fmt(summary.drift_percent,1)}%`)}${this.metric(this.t("trend"), esc(summary.trend || "not_assessable"))}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p>${this.meteringDecision(summary.source_decision)}<p class="bcm-muted">${this.t("sourceHint")}</p>${this.linearModel()}</section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.calibrationTable(rows, admin)}</section>`;
   }
 
   linearModel() {
@@ -1305,7 +1360,7 @@ class BatteryChargeManagerPanel extends BcmBase {
   }
 
   measurementFieldLabel(key) {
-    const labels = { switch_entity:"switchEntity", energy_sensor:"energySensor", power_sensor:"powerSensor", temperature_sensor:"temperatureSensor", charger_model:"chargerModel", cable_description:"cable", port_labels:"portsUsed", max_power_w:"maxPower", max_temperature_c:"maxTemperature", nominal_capacity_mah:"capacity", nominal_voltage_v:"voltage", nominal_energy_wh:"energy", form_factor:"formFactor", charging_method:"chargingMethod", discharge_method:"dischargeMethod", rest_time_minutes:"restTime", starting_condition_notes:"startingNotes" };
+    const labels = { voltage_sensor:"voltageSensor", current_sensor:"currentSensor", switch_entity:"switchEntity", energy_sensor:"energySensor", power_sensor:"powerSensor", temperature_sensor:"temperatureSensor", charger_model:"chargerModel", cable_description:"cable", port_labels:"portsUsed", max_power_w:"maxPower", max_temperature_c:"maxTemperature", nominal_capacity_mah:"capacity", nominal_voltage_v:"voltage", nominal_energy_wh:"energy", form_factor:"formFactor", charging_method:"chargingMethod", discharge_method:"dischargeMethod", rest_time_minutes:"restTime", starting_condition_notes:"startingNotes" };
     return this.t(labels[key] || key);
   }
 
@@ -1330,6 +1385,21 @@ class BatteryChargeManagerPanel extends BcmBase {
     const rows = d.record_type === "calibration" ? this._state.calibrations : this._state.idle_measurements;
     const liveRow = rows.find((item) => (item.calibration_id || item.measurement_id) === (d.calibration_id || d.measurement_id));
     return Boolean(liveRow && ["valid","revision_status","current_setup_revision","current_battery_revision","analysis_revision","usage_reason"].some((key) => liveRow[key] !== d[key]));
+  }
+
+  meteringDecision(decision = {}) {
+    return `<p><strong>${this.t("chosenSource")}: ${this.t(decision.source === "power" ? "powerSource" : "meterSource")}</strong></p><p class="bcm-muted">${this.t(decision.reason || "insufficient_calibrations")}</p>`;
+  }
+
+  meteringComparison(report = {}) {
+    if (!Object.keys(report).length) return `<p class="bcm-muted">${this.t("no_parallel_trace")}</p>`;
+    return `<section><h3>${this.t("parallel")}</h3><div class="bcm-metrics">${this.metric(this.t("counterNet"),`${fmt(report.meter_net_wh,3)} Wh`)}${this.metric(this.t("powerNet"),`${fmt(report.power_net_wh,3)} Wh`)}${this.metric(this.t("apparentSource"),`${fmt(report.apparent_energy_vah,3)} VAh`)}${this.metric(this.t("meterStep"),`${fmt(report.meter_step_wh,3)} Wh`)}${this.metric(this.t("coverage"),`${fmt(report.coverage_percent,1)} %`)}</div><p>${this.t(report.reason || "no_parallel_trace")}</p><p class="bcm-muted">${this.t("sourceHint")}</p></section>`;
+  }
+
+  parallelLive(session) {
+    const m = session.metering;
+    if (!m || !Object.keys(m).length) return "";
+    return `<details data-disclosure="parallel-live"><summary>${this.t("parallel")} · ${this.t(session.energy_source === "power" ? "powerSource" : "meterSource")}</summary><div class="bcm-metrics">${this.metric(this.t("meterSource"),`${fmt(m.meter_wh,3)} Wh`)}${this.metric(this.t("powerSource"),`${fmt(m.power_wh,3)} Wh`)}${this.metric(this.t("apparentSource"),`${fmt(m.apparent_valid ? m.apparent_vah : null,3)} VAh`)}</div>${m.power_valid === false ? `<p>${this.t("powerInvalid")}</p>` : ""}<p class="bcm-muted">${this.t("sourceHint")}</p></details>`;
   }
 
   renderMeasurementDialog(admin) {
@@ -1359,7 +1429,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       ${active ? `<p class="bcm-note">${this.t("activeSessionHint")}</p>` : ""}${decision}
       <section>${action === "approve" ? "" : this.revisionComparison(d)}${d.invalid_reason ? `<p>${this.t("decisionReason")}: ${esc(d.invalid_reason)}</p>` : ""}</section>
       <section><div class="bcm-metrics">${metric("gross",`${fmt(d.gross_energy_wh)} Wh`)}${calibration ? `${metric("idleEnergy", d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_energy_wh)} Wh`)}${metric("net",d.idle_correction_status === "pending" ? this.t("pendingCorrection") : `${fmt(d.net_energy_wh)} Wh`)}${metric("baseline",d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_baseline_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.charge_duration_seconds))}${metric("peakPower",`${fmt(d.peak_power_w)} W`)}` : `${metric("measuredBaseline", d.below_detection_limit ? `&lt; ${fmt(d.upper_bound_power_w,3)} W` : `${fmt(d.median_power_w ?? d.average_power_w,3)} W`)}${metric("stdev",`${fmt(d.stdev_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.duration_seconds))}`}</div>${calibration ? `<p>${this.t("quantity")}: ${d.quantity} · ${this.t("portsUsed")}: ${esc((d.ports || []).join(" + "))}</p><p>${this.t("method")}: ${esc(this.t(`method_${d.end_method}`))} · ${this.t("analysisRevision")} ${d.analysis_revision || 1}</p>` : `<p>${this.t("measurementMode")}: ${this.t(d.mode === "automatic" ? "auto" : "fixed")} · ${this.t(d.reliable ? "reliable" : "unreliableLabel")}</p>`}${times.map(([label,value]) => `<div class="bcm-row"><span>${this.t(label)}</span><strong>${fmtDate(value,this.language)}</strong></div>`).join("")}</section>
-      ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${sourceLinks}
+      ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${calibration ? this.meteringComparison(d.metering_comparison) : ""}${sourceLinks}
       <details data-disclosure="changes"><summary>${this.t("changes")}</summary>${this.revisionChanges(d)}</details>
       <details data-disclosure="snapshots"><summary>${this.t("snapshots")}</summary>${snapshots}</details>
       <details data-disclosure="decisions"><summary>${this.t("decisions")}</summary>${this.decisionHistory(d)}</details>
@@ -1382,7 +1452,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const sample = d.chart_samples?.[index];
     if (!sample) return "";
     const pending = d.record_type === "calibration" && d.idle_correction_status === "pending";
-    return `<div class="bcm-note"><strong>${fmtDate(sample.timestamp,this.language)}</strong><div class="bcm-sample-values"><span>${this.t("power")}: ${fmt(sample.power_w,3)} W</span><span>${this.t("gross")}: ${fmt(sample.gross_energy_wh,4)} Wh</span>${d.record_type === "calibration" && !pending ? `<span>${this.t("net")}: ${fmt(sample.net_energy_wh,4)} Wh</span>` : ""}<span>${this.t("rawEnergy")}: ${fmt(sample.raw_energy_wh,4)} Wh</span>${sample.temperature_c !== null && sample.temperature_c !== undefined ? `<span>${this.t("temperature")}: ${fmt(sample.temperature_c,1)} °C</span>` : ""}</div></div>`;
+    return `<div class="bcm-note"><strong>${fmtDate(sample.timestamp,this.language)}</strong><div class="bcm-sample-values"><span>${this.t("power")}: ${fmt(sample.power_w,3)} W</span><span>${this.t("gross")}: ${fmt(sample.gross_energy_wh,4)} Wh</span>${d.record_type === "calibration" && !pending ? `<span>${this.t("net")}: ${fmt(sample.net_energy_wh,4)} Wh</span>` : ""}<span>${this.t("rawEnergy")}: ${fmt(sample.raw_energy_wh,4)} Wh</span>${sample.power_energy_wh != null ? `<span>${this.t("powerSource")}: ${fmt(sample.power_energy_wh,4)} Wh</span>` : ""}${sample.voltage_v != null ? `<span>U: ${fmt(sample.voltage_v,2)} V</span>` : ""}${sample.current_a != null ? `<span>I: ${fmt(sample.current_a,4)} A</span>` : ""}${sample.apparent_energy_vah != null ? `<span>${this.t("apparentSource")}: ${fmt(sample.apparent_energy_vah,4)} VAh</span>` : ""}${sample.temperature_c !== null && sample.temperature_c !== undefined ? `<span>${this.t("temperature")}: ${fmt(sample.temperature_c,1)} °C</span>` : ""}</div></div>`;
   }
 
   async confirmMeasurementDecision() {
@@ -1426,7 +1496,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.battery_id ? this.t("edit") : this.t("addBattery")}</h2>${dialogError}<div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}${this.input("manufacturer",this.t("manufacturer"),d.manufacturer)}${this.input("model",this.t("model"),d.model)}${this.input("nominal_capacity_mah",this.t("capacity"),d.nominal_capacity_mah ?? "",false,"number")}${this.input("nominal_voltage_v",this.t("voltage"),d.nominal_voltage_v,"", "number", "0.01")}${this.input("nominal_energy_mwh",this.t("energy"),d.nominal_energy_mwh ?? (d.nominal_energy_wh === null || d.nominal_energy_wh === undefined ? "" : Number(d.nominal_energy_wh) * 1000),false,"number","1")}${this.selectField("technology",this.t("technology"),["Li-Ion USB-C","Li-Ion","LiFePO4","NiMH","NiCd","Other"],d.technology || "Li-Ion USB-C")}${this.selectField("form_factor",this.t("formFactor"),["AAA","AA","C","D","9V","18650","21700","Proprietary","Other"],d.form_factor || "AA")}${this.selectField("charging_method",this.t("chargingMethod"),["Integrated USB-C charger","External USB charger","Dedicated charger","Other"],d.charging_method || "Integrated USB-C charger")}${this.input("discharge_method",this.t("dischargeMethod"),d.discharge_method)}${this.input("rest_time_minutes",this.t("restTime"),d.rest_time_minutes ?? "","", "number", "1")}${this.imageField("battery",d.image)}</div>${this.textarea("starting_condition_notes",this.t("startingNotes"),d.starting_condition_notes)}${this.textarea("notes",this.t("notes"),d.notes)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-battery">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
     }
     if (this._dialog === "setup") {
-      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.setup_id ? this.t("edit") : this.t("addSetup")}</h2>${dialogError}<div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}<div class="bcm-field"><label>${this.t("switchEntity")}</label><select data-draft="switch_entity" required>${this.entityOptions("switch",d.switch_entity)}</select></div><div class="bcm-field"><label>${this.t("energySensor")}</label><select data-draft="energy_sensor" required>${this.entityOptions("energy",d.energy_sensor)}</select></div><div class="bcm-field"><label>${this.t("powerSensor")}</label><select data-draft="power_sensor">${this.entityOptions("power",d.power_sensor,true)}</select></div><div class="bcm-field"><label>${this.t("temperatureSensor")}</label><select data-draft="temperature_sensor">${this.entityOptions("temperature",d.temperature_sensor,true)}</select></div>${this.input("charger_model",this.t("chargerModel"),d.charger_model)}${this.input("cable_description",this.t("cable"),d.cable_description)}${this.input("port_labels",this.t("ports"),Array.isArray(d.port_labels) ? d.port_labels.join(", ") : (d.port_labels || "A, B, C, D"),true)}${this.input("max_power_w",this.t("maxPower"),d.max_power_w ?? 100,true,"number","0.1")}${this.input("max_temperature_c",this.t("maxTemperature"),d.max_temperature_c,"", "number", "0.1")}${this.imageField("setup",d.image)}</div>${this.textarea("description",this.t("description"),d.description)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-setup">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
+      return `<div class="bcm-overlay"><div class="bcm-dialog"><h2>${d.setup_id ? this.t("edit") : this.t("addSetup")}</h2>${dialogError}<div class="bcm-form-grid">${this.input("name",this.t("name"),d.name,true)}<div class="bcm-field"><label>${this.t("switchEntity")}</label><select data-draft="switch_entity" required>${this.entityOptions("switch",d.switch_entity)}</select></div><div class="bcm-field"><label>${this.t("energySensor")}</label><select data-draft="energy_sensor" required>${this.entityOptions("energy",d.energy_sensor)}</select></div><div class="bcm-field"><label>${this.t("powerSensor")}</label><select data-draft="power_sensor">${this.entityOptions("power",d.power_sensor,true)}</select></div><div class="bcm-field"><label>${this.t("voltageSensor")}</label><select data-draft="voltage_sensor">${this.entityOptions("voltage",d.voltage_sensor,true)}</select></div><div class="bcm-field"><label>${this.t("currentSensor")}</label><select data-draft="current_sensor">${this.entityOptions("current",d.current_sensor,true)}</select></div><p class="bcm-muted">${this.t("diagnosticHint")}</p><div class="bcm-field"><label>${this.t("temperatureSensor")}</label><select data-draft="temperature_sensor">${this.entityOptions("temperature",d.temperature_sensor,true)}</select></div>${this.input("charger_model",this.t("chargerModel"),d.charger_model)}${this.input("cable_description",this.t("cable"),d.cable_description)}${this.input("port_labels",this.t("ports"),Array.isArray(d.port_labels) ? d.port_labels.join(", ") : (d.port_labels || "A, B, C, D"),true)}${this.input("max_power_w",this.t("maxPower"),d.max_power_w ?? 100,true,"number","0.1")}${this.input("max_temperature_c",this.t("maxTemperature"),d.max_temperature_c,"", "number", "0.1")}${this.imageField("setup",d.image)}</div>${this.textarea("description",this.t("description"),d.description)}<div class="bcm-actions"><button class="bcm-btn" data-action="save-setup">${this.t("save")}</button><button class="bcm-btn secondary" data-action="close-dialog">${this.t("cancel")}</button></div></div></div>`;
     }
     return "";
   }
@@ -1676,6 +1746,8 @@ class BatteryChargeManagerPanel extends BcmBase {
       d.rest_time_minutes = d.rest_time_minutes === "" || d.rest_time_minutes === undefined ? null : Number(d.rest_time_minutes);
     } else {
       d.power_sensor = d.power_sensor || null;
+      d.voltage_sensor = d.voltage_sensor || null;
+      d.current_sensor = d.current_sensor || null;
       d.temperature_sensor = d.temperature_sensor || null;
       d.max_power_w = Number(d.max_power_w || 100);
       d.max_temperature_c = d.max_temperature_c === "" || d.max_temperature_c === null || d.max_temperature_c === undefined ? null : Number(d.max_temperature_c);
