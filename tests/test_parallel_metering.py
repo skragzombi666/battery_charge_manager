@@ -297,13 +297,15 @@ class ParallelCutoffTests(unittest.IsolatedAsyncioTestCase):
     async def test_complete_calibration_stores_same_endpoint_comparison(self):
         start, trace = MeteringEvidenceTests().trace()
         self.manager.session = ChargeSession(
-            mode='calibrating', setup_id='s', battery_id='b', quantity=1, ports=['A'],
+            mode='calibrating', comment='USB reference', comment_history=[{'comment': 'USB reference'}], setup_id='s', battery_id='b', quantity=1, ports=['A'],
             session_started_at=start.isoformat(), switch_on_at=start.isoformat(),
             charge_started_at=start.isoformat(), candidate_end_at=trace[-1].timestamp,
             candidate_end_net_energy_wh=4, candidate_end_gross_energy_wh=4,
             gross_energy_wh=4, net_energy_wh=4, idle_baseline_power_w=0,
             idle_measurement_ids=['i'], samples=trace)
         record = await self.manager._async_complete_calibration(automatic=True, reason='done')
+        self.assertEqual(record.comment, 'USB reference')
+        self.assertEqual(record.comment_history, [{'comment': 'USB reference'}])
         self.assertTrue(record.metering_comparison['power_eligible'])
         self.assertAlmostEqual(record.metering_comparison['power_net_wh'], 4)
         self.manager._apply_idle_correction(record, baseline=.1, measurement_ids=['i'], quality='stable')

@@ -154,3 +154,69 @@ test("an unstable idle baseline visibly blocks ordinary charging", () => {
   assert.match(html, /data-action="start-charge" disabled/);
   assert.match(html, /widersprüchliche Messungen prüfen/);
 });
+
+test("one global export action and editable escaped calibration annotation", () => {
+  const p = panel();
+  const management = p.renderManagement();
+  assert.equal((management.match(/data-action="export-all"/g) || []).length, 1);
+  p._measurementDetail = detail({comment:'<script>bad</script>', comment_history:[]});
+  p._commentDraft = p._measurementDetail.comment;
+  const html = p.renderMeasurementDialog(true);
+  assert.match(html, /data-comment-draft/);
+  assert.match(html, /&lt;script&gt;bad&lt;\/script&gt;/);
+  assert.match(html, /data-action="save-comment"/);
+  assert.doesNotMatch(p.renderMeasurementDialog(false), /data-action="save-comment"/);
+});
+
+test("start sends draft comment and clears it only on success", async () => {
+  const p = panel();
+  p._formValues.calibrationComment = 'Same discharge';
+  let sent;
+  p.call = async (command, payload) => { sent = {command,payload}; };
+  p.navigate = () => {};
+  await p.handleAction('start-calibration');
+  assert.equal(sent.payload.comment, 'Same discharge');
+  assert.equal(p._formValues.calibrationComment, '');
+  p._formValues.calibrationComment = 'Keep after failure';
+  p.call = async () => { throw new Error('offline'); };
+  await p.handleAction('start-calibration');
+  assert.equal(p._formValues.calibrationComment, 'Keep after failure');
+});
+
+test("JSON download contains complete returned payload", async () => {
+  const p = panel();
+  const payload = {exported_at:'2026-09-13T15:00:00Z', calibrations:[{samples:[{power_w:2.3}],valid:false}]};
+  p.call = async command => { assert.equal(command,'export_measurements'); return payload; };
+  let blob, clicked = false;
+  const link = {click(){clicked=true;},remove(){}};
+  const original = {document:globalThis.document,create:URL.createObjectURL,revoke:URL.revokeObjectURL,timeout:globalThis.setTimeout};
+  try {
+    globalThis.document = {createElement:()=>link,body:{appendChild(){}}};
+    URL.createObjectURL = value => {blob=value;return 'blob:test';};
+    URL.revokeObjectURL = () => {};
+    globalThis.setTimeout = fn => {fn();};
+    await p.exportAllMeasurements();
+    assert.deepEqual(JSON.parse(await blob.text()),payload);
+    assert.equal(clicked,true);
+    assert.match(link.download,/battery-charge-manager-.*\.json$/);
+  } finally {
+    globalThis.document=original.document; URL.createObjectURL=original.create;
+    URL.revokeObjectURL=original.revoke;globalThis.setTimeout=original.timeout;
+  }
+});
+
+test("calibration text survives input and change before starting", async () => {
+  const p = panel();
+  const handlers = {};
+  const field = {type:'textarea', value:'USB-C: 4.711 Wh\nAkku A', dataset:{formValue:'calibrationComment'}, addEventListener(name,fn){handlers[name]=fn;}};
+  p.shadowRoot.querySelectorAll = selector => selector === '[data-form-value]' ? [field] : [];
+  p.bindEvents();
+  handlers.input();
+  handlers.change?.();
+  assert.equal(p._formValues.calibrationComment, field.value);
+  let payload;
+  p.call = async (_command, data) => {payload=data;};
+  p.navigate = () => {};
+  await p.handleAction('start-calibration');
+  assert.equal(payload.comment,field.value);
+});

@@ -334,6 +334,55 @@ class BatteryChargeManager:
         async with self._sample_lock:
             await self._async_save()
 
+    def export_measurements(self) -> dict[str, Any]:
+        """Return one independent snapshot of every retained measurement and its context."""
+        return deepcopy({
+            "export_format": "battery_charge_manager.measurements",
+            "export_schema_version": 1,
+            "exported_at": self._now_iso(),
+            "integration_version": VERSION,
+            "algorithm_version": ALGORITHM_VERSION,
+            "data_schema_version": DATA_SCHEMA_VERSION,
+            "time_zone": getattr(self.hass.config, "time_zone", "UTC"),
+            "retention": {
+                "scope": "all_retained_data",
+                "trace_note": "Stored samples; earlier trace compaction cannot be reversed.",
+                "charge_history_limit": 100,
+                "charge_history_note": "Older entries may contain summaries only.",
+            },
+            "setups": [item.as_dict() for item in self.setups.values()],
+            "batteries": [item.as_dict() for item in self.batteries.values()],
+            "idle_measurements": [item.as_dict() for item in self.idle_measurements.values()],
+            "calibrations": [item.as_dict() for item in self.calibrations.values()],
+            "current_usage": {
+                "idle": [self._measurement_row(item) for item in self.idle_measurements.values()],
+                "calibration": [self._measurement_row(item) for item in self.calibrations.values()],
+            },
+            "charge_history": self.charge_history,
+            "session": self.session.as_dict(),
+            "settings": {"selected_setup_id": self.selected_setup_id,
+                         "selected_battery_id": self.selected_battery_id,
+                         "selected_quantity": self.selected_quantity,
+                         "target_percent": self.target_percent,
+                         "max_session_hours": self.max_session_hours},
+        })
+
+    async def async_set_calibration_comment(
+        self, record_id: str, comment: str, *, expected_comment: str,
+        actor_id: str | None = None,
+    ) -> None:
+        """Edit annotation independently of measurement validity and analysis."""
+        record = self._measurement("calibration", record_id)
+        if record.comment != expected_comment:
+            raise HomeAssistantError("Comment changed elsewhere. Reopen the calibration before saving.")
+        if record.comment == comment:
+            return
+        record.comment_history.append({"changed_at": self._now_iso(), "actor_id": actor_id,
+                                       "previous_comment": record.comment, "comment": comment})
+        record.comment = comment
+        await self._async_save()
+        self._notify()
+
     async def _async_save(self) -> None:
         """Persist all manager data."""
         await self.store.async_save(
@@ -800,7 +849,7 @@ class BatteryChargeManager:
             reason = "lower_confidence" if calibration else "unreliable"
         row = record.as_dict(include_samples=False)
         # Historical payloads are fetched once on demand, not in every live update.
-        for key in ("setup_snapshot", "battery_snapshot", "revision_approvals", "validity_history", "analysis_history"):
+        for key in ("setup_snapshot", "battery_snapshot", "revision_approvals", "validity_history", "analysis_history", "comment_history"):
             row.pop(key, None)
         row.update({
             "record_type": "calibration" if calibration else "idle",
@@ -874,7 +923,7 @@ class BatteryChargeManager:
                              "record_ids": list(summary.get("record_ids", []))},
         )
 
-    async def async_start_calibration(self) -> None:
+    async def async_start_calibration(self, comment: str = "", *, actor_id: str | None = None) -> None:
         """Start automatic full-charge calibration with deferred correction."""
         self._ensure_idle()
         setup = self._require_setup()
@@ -884,6 +933,8 @@ class BatteryChargeManager:
             setup=setup,
             battery=battery,
             target_energy_wh=None,
+            comment=comment,
+            comment_actor_id=actor_id,
         )
 
     async def async_start_idle_measurement(
@@ -1119,6 +1170,8 @@ class BatteryChargeManager:
         auto_min_minutes: float | None = None,
         auto_max_minutes: float | None = None,
         source_decision: dict | None = None,
+        comment: str = "",
+        comment_actor_id: str | None = None,
     ) -> None:
         """Validate hardware, create a persistent session, and switch on."""
         self._validate_runtime_setup(setup)
@@ -1146,6 +1199,9 @@ class BatteryChargeManager:
         )
         self.session = ChargeSession(
             session_id=uuid4().hex,
+            comment=comment,
+            comment_history=([{"changed_at": now, "actor_id": comment_actor_id,
+                               "previous_comment": "", "comment": comment}] if comment else []),
             mode=mode,
             phase=phase,
             setup_id=setup.setup_id,
@@ -1885,6 +1941,8 @@ class BatteryChargeManager:
             ) / 3600.0
             record = CalibrationRecord(
                 calibration_id=uuid4().hex,
+                comment=self.session.comment,
+                comment_history=deepcopy(self.session.comment_history),
                 setup_id=setup.setup_id,
                 setup_revision=setup.revision,
                 setup_snapshot=setup.snapshot(),
@@ -2439,7 +2497,7 @@ class BatteryChargeManager:
                 if item.setup_id == setup_id and item.battery_id == battery_id
                 and item.quantity == self.selected_quantity
             ],
-            "charge_history": list(reversed(self.charge_history[-50:])),
+            "charge_history": [{k: v for k, v in item.items() if k not in {"session", "setup_snapshot", "battery_snapshot", "comment_history"}} for item in reversed(self.charge_history[-50:])],
             "session": session,
             "active_idle_summary": active_idle,
             "active_calibration_summary": active_calibration,
@@ -2452,6 +2510,8 @@ class BatteryChargeManager:
         self.charge_history.append(
             {
                 "session_id": self.session.session_id,
+                "comment": self.session.comment,
+                "comment_history": deepcopy(self.session.comment_history),
                 "energy_source": self.session.energy_source,
                 "source_decision": deepcopy(self.session.source_decision),
                 "metering": deepcopy(self.session.metering),
@@ -2468,6 +2528,9 @@ class BatteryChargeManager:
                 "finished_at": self.session.session_finished_at or self._now_iso(),
                 "valid": valid,
                 "reason": reason,
+                "session": deepcopy(self.session.as_dict()),
+                "setup_snapshot": self.setups[self.session.setup_id].snapshot() if self.session.setup_id in self.setups else None,
+                "battery_snapshot": self.batteries[self.session.battery_id].snapshot() if self.session.battery_id in self.batteries else None,
             }
         )
         self.charge_history = self.charge_history[-100:]

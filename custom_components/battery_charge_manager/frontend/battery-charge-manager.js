@@ -36,6 +36,11 @@ const TEXT = {
     setups: "Ladeanordnungen",
     idle: "Leerlaufmessung",
     calibrations: "Kalibrationen",
+    exportAll: "Alle Messdaten exportieren (JSON)",
+    exportHelp: "Alle gespeicherten Messreihen, Kalibrierungen, Leerlaufmessungen und Ladeverläufe inklusive Kommentare, Gültigkeit, Revisionen und Änderungshistorien.",
+    calibrationComment: "Kommentar zur Kalibrierung (optional)",
+    commentHistory: "Kommentarverlauf",
+    saveComment: "Kommentar speichern",
     settings: "Einstellungen",
     home: "Startseite",
     manage: "Verwaltung",
@@ -210,6 +215,11 @@ const TEXT = {
     setups: "Charging setups",
     idle: "Idle measurement",
     calibrations: "Calibrations",
+    exportAll: "Export all measurement data (JSON)",
+    exportHelp: "All retained traces, calibrations, idle measurements and charge history including comments, validity, revisions and change histories.",
+    calibrationComment: "Calibration comment (optional)",
+    commentHistory: "Comment history",
+    saveComment: "Save comment",
     settings: "Settings",
     home: "Home",
     manage: "Management",
@@ -1061,7 +1071,7 @@ class BatteryChargeManagerPanel extends BcmBase {
   }
 
   renderManagement() {
-    return `<p class="bcm-muted">${this.t("manageIntro")}</p><div class="bcm-grid">${["batteries","setups","idle","calibrations","settings"].map(id => `<button class="bcm-card bcm-management-link" data-tab="${id}"><strong>${this.t(id)}</strong><span class="bcm-muted">${this.t(`${id}Help`)}</span></button>`).join("")}</div>`;
+    return `<p class="bcm-muted">${this.t("manageIntro")}</p>${this._hass?.user?.is_admin ? `<section class="bcm-card"><p>${this.t("exportHelp")}</p><button class="bcm-btn" data-action="export-all" ${this._busy ? "disabled" : ""}>${this.t("exportAll")}</button></section>` : ""}<div class="bcm-grid">${["batteries","setups","idle","calibrations","settings"].map(id => `<button class="bcm-card bcm-management-link" data-tab="${id}"><strong>${this.t(id)}</strong><span class="bcm-muted">${this.t(`${id}Help`)}</span></button>`).join("")}</div>`;
   }
 
   renderTab(admin) {
@@ -1277,7 +1287,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       <div class="bcm-note">${this.t("calibrationHint")}</div>
       ${hasSelection ? "" : `<p class="bcm-note">${this.t("selectRequired")}</p>`}
       ${(idle.usable ?? Boolean(idle.reliable_count)) ? "" : `<p class="bcm-note">${this.t("idleRequired")}</p>`}
-      ${admin ? `<div class="bcm-actions"><button class="bcm-btn" data-action="start-calibration" ${!hasSelection || this.sessionActive() || this._busy ? "disabled" : ""}>${this.t("startCalibration")}</button></div>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}`;
+      ${admin ? `<div class="bcm-field"><label for="calibration-comment">${this.t("calibrationComment")}</label><textarea id="calibration-comment" data-form-value="calibrationComment">${esc(this._formValues.calibrationComment || "")}</textarea></div><div class="bcm-actions"><button class="bcm-btn" data-action="start-calibration" ${!hasSelection || this.sessionActive() || this._busy ? "disabled" : ""}>${this.t("startCalibration")}</button></div>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}`;
   }
 
   renderCalibrations(admin) {
@@ -1352,6 +1362,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       const result = await this._hass.callWS({ type: `${BCM_DOMAIN}/get_measurement`, record_type: kind, record_id: recordId });
       if (request !== this._detailsRequest || this._dialog !== "measurement") return;
       this._measurementDetail = result;
+      this._commentDraft = result.comment || "";
     } catch (err) {
       if (request !== this._detailsRequest) return;
       this._error = err?.message || String(err);
@@ -1430,6 +1441,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       <section>${action === "approve" ? "" : this.revisionComparison(d)}${d.invalid_reason ? `<p>${this.t("decisionReason")}: ${esc(d.invalid_reason)}</p>` : ""}</section>
       <section><div class="bcm-metrics">${metric("gross",`${fmt(d.gross_energy_wh)} Wh`)}${calibration ? `${metric("idleEnergy", d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_energy_wh)} Wh`)}${metric("net",d.idle_correction_status === "pending" ? this.t("pendingCorrection") : `${fmt(d.net_energy_wh)} Wh`)}${metric("baseline",d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_baseline_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.charge_duration_seconds))}${metric("peakPower",`${fmt(d.peak_power_w)} W`)}` : `${metric("measuredBaseline", d.below_detection_limit ? `&lt; ${fmt(d.upper_bound_power_w,3)} W` : `${fmt(d.median_power_w ?? d.average_power_w,3)} W`)}${metric("stdev",`${fmt(d.stdev_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.duration_seconds))}`}</div>${calibration ? `<p>${this.t("quantity")}: ${d.quantity} · ${this.t("portsUsed")}: ${esc((d.ports || []).join(" + "))}</p><p>${this.t("method")}: ${esc(this.t(`method_${d.end_method}`))} · ${this.t("analysisRevision")} ${d.analysis_revision || 1}</p>` : `<p>${this.t("measurementMode")}: ${this.t(d.mode === "automatic" ? "auto" : "fixed")} · ${this.t(d.reliable ? "reliable" : "unreliableLabel")}</p>`}${times.map(([label,value]) => `<div class="bcm-row"><span>${this.t(label)}</span><strong>${fmtDate(value,this.language)}</strong></div>`).join("")}</section>
       ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${calibration ? this.meteringComparison(d.metering_comparison) : ""}${sourceLinks}
+      ${calibration ? `<section><h3>${this.t("calibrationComment")}</h3>${admin ? `<textarea aria-label="${this.t("calibrationComment")}" data-comment-draft>${esc(this._commentDraft ?? d.comment ?? "")}</textarea><div class="bcm-actions"><button class="bcm-btn" data-action="save-comment" ${this._busy ? "disabled" : ""}>${this.t("saveComment")}</button></div>` : `<p style="white-space:pre-wrap">${esc(d.comment || "–")}</p>`}<details data-disclosure="comment-history"><summary>${this.t("commentHistory")}</summary>${(d.comment_history || []).map(item => `<div class="bcm-note"><strong>${fmtDate(item.changed_at,this.language)}</strong><p style="white-space:pre-wrap">${esc(item.comment || "–")}</p></div>`).join("")}</details></section>` : ""}
       <details data-disclosure="changes"><summary>${this.t("changes")}</summary>${this.revisionChanges(d)}</details>
       <details data-disclosure="snapshots"><summary>${this.t("snapshots")}</summary>${snapshots}</details>
       <details data-disclosure="decisions"><summary>${this.t("decisions")}</summary>${this.decisionHistory(d)}</details>
@@ -1538,6 +1550,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     }));
     this.shadowRoot.querySelectorAll("[data-history-filter]").forEach((el) => el.addEventListener("change", () => { this._historyFilters[el.dataset.historyFilter] = el.value; this._historyLimits[el.dataset.historyFilter] = 25; this.render(); }));
     this.shadowRoot.querySelectorAll("[data-history-more]").forEach((el) => el.addEventListener("click", () => { const kind = el.dataset.historyMore; this._historyLimits[kind] = (this._historyLimits[kind] || 25) + 25; this.render(); }));
+    this.shadowRoot.querySelector("[data-comment-draft]")?.addEventListener("input", event => { this._commentDraft = event.target.value; });
     const decisionReady = () => {
       const button = this.shadowRoot.querySelector('[data-action="confirm-measurement"]');
       const requiresReason = ["approve","revoke"].includes(this._recordDecision);
@@ -1558,7 +1571,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       el.addEventListener("input", () => {
         this._formValues[el.dataset.formValue] = el.value;
       });
-      el.addEventListener("change", () => this.commitNumberInput(el));
+      if (el.type === "number") el.addEventListener("change", () => this.commitNumberInput(el));
     });
     this.shadowRoot.querySelectorAll("[data-select]").forEach((el) => el.addEventListener("change", async () => {
       const key = el.dataset.select;
@@ -1608,6 +1621,15 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   async handleAction(action) {
     try {
+      if (action === "export-all") { await this.exportAllMeasurements(); return; }
+      if (action === "save-comment") {
+        const d = this._measurementDetail;
+        if (!d || this._busy || !this._hass?.user?.is_admin) return;
+        const request = this._detailsRequest;
+        await this.call("set_calibration_comment", {record_id:d.calibration_id, comment:this._commentDraft ?? d.comment ?? "", expected_comment:d.comment || ""});
+        if (this._dialog === "measurement" && request === this._detailsRequest) await this.openMeasurement("calibration",d.calibration_id);
+        return;
+      }
       if (action === "confirm-measurement") { await this.confirmMeasurementDecision(); return; }
       if (action === "cancel-decision") { this._recordDecision = null; this._decisionReason = ""; this._decisionConfirmed = false; this._error = ""; this.render(); return; }
       if (action === "refresh-measurement") { const d = this._measurementDetail; await this.openMeasurement(d.record_type,d.measurement_id || d.calibration_id); return; }
@@ -1618,7 +1640,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       if (action === "save-setup") { await this.saveDialog("setup", "save_setup"); return; }
       if (action === "start-charge") await this.startSession("start_charge");
       if (action === "stop") await this.call("stop", { reason:"Stopped by user" });
-      if (action === "start-calibration") await this.startSession("start_calibration");
+      if (action === "start-calibration") await this.startSession("start_calibration", {comment:this._formValues.calibrationComment || ""});
       if (action === "finish-calibration") await this.call("finish_calibration");
       if (action === "idle-auto") {
         const minimum = this.readNumberInput("idle-min", 30);
@@ -1645,9 +1667,24 @@ class BatteryChargeManagerPanel extends BcmBase {
     } catch (_err) {}
   }
 
+  async exportAllMeasurements() {
+    if (this._busy || !this._hass?.user?.is_admin) return;
+    const data = await this.call("export_measurements");
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `battery-charge-manager-${data.exported_at.replace(/[:.]/g,"-")}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   async startSession(command, payload = {}) {
     if (!this._hass || this._busy || this.sessionActive()) return;
     await this.call(command, payload);
+    if (command === "start_calibration") this._formValues.calibrationComment = "";
     this.navigate("charge");
   }
 
