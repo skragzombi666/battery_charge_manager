@@ -86,7 +86,7 @@ from .const import (
     STORAGE_VERSION,
     VERSION,
 )
-from . import metering
+from . import metering, energy_policy
 from .models import (
     BatteryType,
     CalibrationRecord,
@@ -120,6 +120,7 @@ class BatteryChargeManager:
         self.calibrations: dict[str, CalibrationRecord] = {}
         self.charge_history: list[dict[str, Any]] = []
         self.session = ChargeSession()
+        self.energy_mode = "auto"
         self.selected_setup_id: str | None = None
         self.selected_battery_id: str | None = None
         self.selected_quantity = 1
@@ -214,6 +215,9 @@ class BatteryChargeManager:
         }
         self.charge_history = [dict(item) for item in data.get("charge_history", [])]
         self.session = ChargeSession.from_dict(data.get("session"))
+        self.energy_mode = data.get("energy_mode", "auto")
+        if self.energy_mode not in energy_policy.MODES:
+            self.energy_mode = "auto"
         self.selected_setup_id = data.get("selected_setup_id")
         if self.selected_setup_id not in self.setups:
             self.selected_setup_id = next(iter(self.setups), None)
@@ -364,7 +368,7 @@ class BatteryChargeManager:
                          "selected_battery_id": self.selected_battery_id,
                          "selected_quantity": self.selected_quantity,
                          "target_percent": self.target_percent,
-                         "max_session_hours": self.max_session_hours},
+                         "max_session_hours": self.max_session_hours, "energy_mode": self.energy_mode},
         })
 
     async def async_set_calibration_comment(
@@ -403,6 +407,7 @@ class BatteryChargeManager:
                 "selected_quantity": self.selected_quantity,
                 "target_percent": self.target_percent,
                 "max_session_hours": self.max_session_hours,
+                "energy_mode": self.energy_mode,
             }
         )
         self._last_saved_at = dt_util.utcnow()
@@ -682,6 +687,42 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    async def async_set_energy_mode(self, mode: str) -> None:
+        """Change future source decisions without modifying an active session."""
+        if mode not in energy_policy.MODES:
+            raise HomeAssistantError("Unknown energy source mode")
+        self.energy_mode = mode
+        await self._async_save()
+        self._notify()
+
+    def _record_source_choice(self, record: CalibrationRecord) -> dict:
+        if record.metering_comparison:
+            return energy_policy.choose(record.metering_comparison, self.energy_mode)
+        usable_meter = math.isfinite(record.net_energy_wh) and record.net_energy_wh > 0
+        return {"source": None if self.energy_mode == "power" or not usable_meter else "meter",
+                "mode": self.energy_mode,
+                "reason": "incomplete_power_data" if self.energy_mode == "power" else "legacy_meter" if usable_meter else "no_meter_energy"}
+
+    def _select_calibration_energy(self, record: CalibrationRecord, mode: str) -> None:
+        """Keep raw traces and set source-matched derived record totals."""
+        report = record.metering_comparison
+        choice = energy_policy.choose(report, mode)
+        record.source_decision = {**choice, "policy_version": 1,
+                                  "usable": choice["source"] is not None}
+        record.energy_source = choice["source"] or "meter"
+        value = report.get("power_net_wh" if choice["source"] == "power" else "meter_net_wh")
+        if record.samples:
+            last = record.samples[-1]
+            gross = last.power_energy_wh if choice["source"] == "power" else (last.meter_energy_wh if last.meter_energy_wh is not None else last.gross_energy_wh)
+            if gross is not None:
+                span = self._seconds_between(record.switch_on_at or record.session_started_at, last.timestamp)
+                record.energy_at_detection_wh = max(0, gross - (record.idle_baseline_power_w or 0) * span / 3600)
+        if value is not None:
+            record.net_energy_wh = value
+            record.gross_energy_wh = value + record.idle_energy_wh
+        if choice["source"] is None:
+            record.confidence = CONFIDENCE_LOW
+
     async def async_set_max_session_hours(self, value: float) -> None:
         """Set global safety timeout."""
         value = float(value)
@@ -833,16 +874,18 @@ class BatteryChargeManager:
             reason = "invalid"
         elif status not in {"native", "approved"}:
             reason = status
+        elif calibration and not self._record_source_choice(record).get("source"):
+            reason = self._record_source_choice(record)["reason"]
         elif calibration and record.idle_correction_status != IDLE_CORRECTION_APPLIED:
             reason = "pending_correction"
         elif calibration and self._invalid_idle_references(record):
             reason = "invalid_idle_reference"
-        elif calibration and (not math.isfinite(record.net_energy_wh) or record.net_energy_wh <= 0):
-            reason = "no_net_energy"
         elif not calibration and included and not idle["usable"]:
             reason = "unstable_baseline" if idle["quality"] == QUALITY_UNSTABLE else "provisional_baseline"
         elif used:
             reason = "used"
+        elif calibration and self._record_source_choice(record).get("source") != self.calibration_summary(record.setup_id, record.battery_id, record.quantity).get("energy_source"):
+            reason = "other_energy_source"
         elif not calibration and record.below_detection_limit and record.reliable:
             reason = "below_detection"
         else:
@@ -856,6 +899,7 @@ class BatteryChargeManager:
             "current_setup_revision": setup.revision if setup else None,
             "current_battery_revision": battery.revision if battery else None,
             "revision_status": status, "used": used, "usage_reason": reason,
+            "effective_source_decision": self._record_source_choice(record) if calibration else None,
             "can_approve": record.valid and status == "historical",
             "has_trace": bool(record.samples), "sample_count": len(record.samples),
         })
@@ -928,11 +972,14 @@ class BatteryChargeManager:
         self._ensure_idle()
         setup = self._require_setup()
         battery = self._require_battery()
+        if self.energy_mode == "power" and not setup.power_sensor:
+            raise HomeAssistantError("W/time mode requires a configured power sensor")
         await self._async_begin_session(
             mode=SESSION_CALIBRATING,
             setup=setup,
             battery=battery,
             target_energy_wh=None,
+            source_decision={"mode": self.energy_mode, "end_policy": "observed_power"},
             comment=comment,
             comment_actor_id=actor_id,
         )
@@ -1021,6 +1068,8 @@ class BatteryChargeManager:
         """Recalculate derived values while retaining the raw trace."""
         record.analysis_history.append(
             {
+                "energy_source": record.energy_source,
+                "source_decision": deepcopy(record.source_decision),
                 "metering_comparison": deepcopy(record.metering_comparison),
                 "analysis_revision": record.analysis_revision,
                 "analyzed_at": record.last_analyzed_at,
@@ -1100,6 +1149,10 @@ class BatteryChargeManager:
                 and gain <= tolerance
                 and average_power <= plateau_threshold
             )
+        if record.setup_snapshot.get("power_sensor"):
+            power_point, confirmed = energy_policy.power_endpoint(samples, baseline, max(.12, peak_net * .05), DEFAULT_END_CONFIRM_MINUTES * 60)
+            if power_point is not None:
+                endpoint = power_point
         if not confirmed:
             endpoint = self._record_sample_at_or_before(
                 samples,
@@ -1141,6 +1194,7 @@ class BatteryChargeManager:
         record.metering_comparison = metering.compare(
             record.samples, record.charge_finished_at, baseline,
             record.switch_on_at or record.session_started_at)
+        self._select_calibration_energy(record, record.source_decision.get("mode", "meter"))
 
     @staticmethod
     def _record_sample_at_or_before(
@@ -1554,6 +1608,8 @@ class BatteryChargeManager:
                 )
             sample = MeasurementSample(
                 timestamp=now_iso,
+                meter_energy_wh=self.session.metering.get("meter_wh"),
+                power_estimate_wh=self.session.metering.get("power_estimate_wh") if setup.power_sensor else None,
                 power_energy_wh=self.session.metering.get("power_wh") if setup.power_sensor else None,
                 apparent_energy_vah=(self.session.metering.get("apparent_vah")
                                      if self.session.metering.get("apparent_valid") else None),
@@ -1563,7 +1619,7 @@ class BatteryChargeManager:
                 power_report_fresh=fresh,
                 metering_quality={key: self.session.metering.get(key) for key in (
                     "covered_seconds", "total_seconds", "max_power_step_wh",
-                    "meter_step_wh", "report_count", "max_report_interval_seconds")},
+                    "meter_step_wh", "report_count", "max_report_interval_seconds", "estimate_covered_seconds")},
                 raw_energy_wh=raw_energy,
                 gross_energy_wh=self.session.gross_energy_wh,
                 idle_energy_wh=self.session.idle_energy_wh,
@@ -1754,6 +1810,25 @@ class BatteryChargeManager:
             DEFAULT_MIN_CHARGE_MINUTES * 60
         ):
             return False
+        if (self.session.source_decision.get("end_policy") == "observed_power"
+                and self._require_session_setup().power_sensor):
+            if max(self.session.net_energy_wh, self.session.metering.get("power_wh", 0)) < .1:
+                return False
+            endpoint, confirmed = energy_policy.power_endpoint(
+                self.session.samples, self.session.idle_baseline_power_w or 0,
+                max(.12, (self.session.peak_net_power_w or 0) * .05),
+                DEFAULT_END_CONFIRM_MINUTES * 60)
+            if endpoint is None:
+                self._reset_end_candidate()
+                return False
+            self.session.candidate_end_at = endpoint.timestamp
+            self.session.candidate_end_net_energy_wh = endpoint.net_energy_wh
+            self.session.candidate_end_gross_energy_wh = endpoint.gross_energy_wh
+            self.session.phase = PHASE_CONFIRMING_END
+            if confirmed:
+                self.session.charge_finished_at = endpoint.timestamp
+                self.session.end_detected_at = now.isoformat()
+            return confirmed
         if self.session.net_energy_wh < 0.1:
             return False
         window_start = now - timedelta(minutes=DEFAULT_END_WINDOW_MINUTES)
@@ -1829,7 +1904,9 @@ class BatteryChargeManager:
         summary = self.calibration_summary(
             setup_id, battery_id, self.session.quantity
         )
-        known = summary.get("median_net_energy_wh")
+        references = [self.calibrations[key].metering_comparison.get("meter_net_wh", self.calibrations[key].net_energy_wh)
+                      for key in summary.get("record_ids", [])]
+        known = median(references) if references else None
         limit = (
             float(known) * DEFAULT_CALIBRATION_MAX_FACTOR
             if known
@@ -1996,11 +2073,17 @@ class BatteryChargeManager:
                 algorithm_version=ALGORITHM_VERSION,
                 samples=list(self.session.samples),
             )
-            if record.net_energy_wh <= 0:
-                raise HomeAssistantError("Calibration endpoint contains no net energy")
             record.metering_comparison = metering.compare(
                 record.samples, record.charge_finished_at, baseline_for_math,
                 record.switch_on_at or record.session_started_at)
+            self._select_calibration_energy(record, self.session.source_decision.get("mode", "meter"))
+            if automatic and self.session.source_decision.get("end_policy") == "observed_power" and setup.power_sensor:
+                record.end_method = "observed_low_power"
+            if record.source_decision.get("usable"):
+                self.session.energy_source = record.energy_source
+                self.session.gross_energy_wh = record.gross_energy_wh
+                self.session.net_energy_wh = record.net_energy_wh
+            self.session.source_decision["calibration_choice"] = deepcopy(record.source_decision)
             self.calibrations[record.calibration_id] = record
             self.session.phase = (
                 PHASE_FINISHED if switch_off_confirmed else PHASE_ERROR
@@ -2263,8 +2346,6 @@ class BatteryChargeManager:
             and self._record_revision_status(item) in {"native", "approved"}
             and item.quantity == quantity
             and item.valid
-            and item.net_energy_wh > 0
-            and math.isfinite(item.net_energy_wh)
         ]
         all_records.sort(key=lambda item: item.session_started_at or "")
         pending = [
@@ -2284,16 +2365,20 @@ class BatteryChargeManager:
             if item.confidence in {CONFIDENCE_HIGH, CONFIDENCE_MEDIUM}
             and not item.legacy
         ]
-        used = trusted or records
-        parallel = [item for item in used if item.metering_comparison]
-        decision = metering.select_source([item.metering_comparison for item in parallel])
-        if not setup.power_sensor:
-            decision.update(source="meter", reason="no_power_sensor")
-        if decision["source"] == "power":
-            used = parallel
-            values = [item.metering_comparison["power_net_wh"] for item in used]
-        else:
-            values = [item.net_energy_wh for item in used]
+        choices = {item.calibration_id: self._record_source_choice(item) for item in records}
+        eligible = [item for item in records if choices[item.calibration_id].get("source")
+                    and (choices[item.calibration_id]["source"] != "power" or setup.power_sensor)]
+        eligible_trusted = [item for item in eligible if item in trusted]
+        excluded_low_confidence = len(eligible) - len(eligible_trusted) if eligible_trusted else 0
+        eligible = eligible_trusted or eligible
+        source = (choices[eligible[-1].calibration_id]["source"] if eligible else
+                  "power" if self.energy_mode == "power" else "meter")
+        used = [item for item in eligible if choices[item.calibration_id]["source"] == source]
+        decision = {"source": source, "mode": self.energy_mode,
+                    "reason": choices[used[-1].calibration_id]["reason"] if used else "no_usable_source",
+                    "count": len(used), "absolute_accuracy_known": False}
+        values = [(item.metering_comparison["power_net_wh"] if source == "power" else
+                   item.metering_comparison.get("meter_net_wh", item.net_energy_wh)) for item in used]
         durations = [
             item.charge_duration_seconds
             for item in used
@@ -2357,7 +2442,7 @@ class BatteryChargeManager:
             ),
             "applied_count": len(records),
             "trusted_count": len(trusted),
-            "excluded_low_confidence_count": len(records) - len(used),
+            "excluded_low_confidence_count": excluded_low_confidence,
             "median_net_energy_wh": overall_median,
             "recent_median_net_energy_wh": recent_median,
             "median_charge_duration_seconds": median(durations) if durations else None,
@@ -2476,6 +2561,7 @@ class BatteryChargeManager:
             "selected_quantity": self.selected_quantity,
             "target_percent": self.target_percent,
             "max_session_hours": self.max_session_hours,
+            "energy_mode": self.energy_mode,
             "setups": setup_rows,
             "batteries": battery_rows,
             "idle_measurements": [

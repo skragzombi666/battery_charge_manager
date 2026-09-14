@@ -49,7 +49,13 @@ Without a usable baseline, calibration may still record a gross trace but its id
 
 ## Retrospective endpoint
 
-A calibration records the full trace beyond the first possible endpoint. The algorithm identifies a low-energy plateau, waits for a confirmation interval, and then places `charge_finished_at` back at the last significant charging point before the plateau.
+A calibration records the full trace beyond the first possible endpoint. Since
+0.4.0, new calibrations with a power sensor require 20 continuous minutes of fresh
+low-power observations. The threshold is the larger of 0.12 W and 5% of peak net
+power. `charge_finished_at` is placed at the start of this low-power tail. A flat
+coarse Wh counter alone cannot finish such a calibration. Missing reports interrupt
+confirmation; the maximum session duration still applies. Meter-only calibrations
+retain the energy-plateau method.
 
 `end_detected_at` remains the later timestamp at which the plateau was confirmed.
 
@@ -57,7 +63,17 @@ This distinction prevents confirmation time and small maintenance pulses from in
 
 ## Repeated measurements
 
-The operational value for an exact profile is the median of valid current-revision or explicitly approved calibration records. Pending results, records with invalid/missing idle references and nonpositive net energies are excluded. High/medium-confidence records take precedence over low-confidence fallbacks. The integration also calculates robust spread, standard deviation, recent drift, and quality status.
+The operational value for an exact profile is the median of valid current-revision
+or explicitly approved calibration records using the same selected source.
+Pending results, records with invalid/missing idle references, unusable source
+data and nonpositive energies for the selected source are excluded.
+High/medium-confidence usable records take precedence over low-confidence
+fallbacks. Automatic mode uses the source of the most recent eligible calibration
+in that group, then combines only records choosing that source. The integration
+also calculates robust spread, standard deviation, recent drift, and quality status.
+
+See [source selection in 0.4.0](version-0.4.0.md) for fixed modes, quality gates,
+and the distinction between accepted integration and diagnostic held estimates.
 
 Invalidating an idle source excludes dependent calibrations without erasing their results. Existing corrected records are recalculated only on explicit request, preserving prior analyses. Revoking a source's revision approval only changes eligibility for future baseline aggregation; it does not invalidate that source's historical measurements or silently rewrite previous corrections.
 
