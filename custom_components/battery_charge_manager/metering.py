@@ -28,6 +28,7 @@ def advance(
         state.update(power_wh=0.0, apparent_vah=0.0, power_valid=True,
                      apparent_valid=True, max_gap_seconds=0.0, gaps=0,
                      covered_seconds=0.0, total_seconds=0.0,
+                     estimate_covered_seconds=0.0, power_estimate_wh=0.0,
                      max_power_step_wh=0.0, meter_step_wh=None,
                      report_count=0, max_report_interval_seconds=0.0)
     previous_at = state.get('timestamp')
@@ -65,6 +66,11 @@ def advance(
             state['power_valid'] = False
             state['apparent_valid'] = False
         elif seconds > 0:
+            # Diagnostic hold estimate retains finite cached readings; freshness
+            # remains a separate requirement for automatic/control eligibility.
+            if finite(power) and finite(state.get('estimate_previous_power')):
+                state['power_estimate_wh'] = state.get('power_estimate_wh', 0) + state['estimate_previous_power'] * seconds / 3600
+                state['estimate_covered_seconds'] = state.get('estimate_covered_seconds', 0) + seconds
             if good and state.get('previous_good'):
                 state['power_wh'] += state['previous_power'] * seconds / 3600
                 state['covered_seconds'] += seconds
@@ -84,6 +90,8 @@ def advance(
         state['power_valid'] = False
     if not finite(apparent):
         state['apparent_valid'] = False
+    state.setdefault("power_estimate_wh", 0.0)
+    state["estimate_previous_power"] = power
     state.update(timestamp=timestamp, previous_power=power if good else None,
                  previous_good=good, previous_apparent=apparent,
                  voltage_v=voltage, current_a=current, apparent_power_va=apparent)
@@ -109,7 +117,10 @@ def compare(
         return report
     first, last = points[0], points[-1]
     span = _time(last.timestamp) - _time(reference_at or first.timestamp)
-    report['meter_net_wh'] = max(0, last.gross_energy_wh - baseline * span / 3600)
+    meter_gross = last.meter_energy_wh if last.meter_energy_wh is not None else last.gross_energy_wh
+    report['meter_net_wh'] = max(0, meter_gross - baseline * span / 3600)
+    report['power_estimate_net_wh'] = max(0, last.power_estimate_wh - baseline * span / 3600) if last.power_estimate_wh is not None else None
+    report['estimate_complete'] = bool(span > 0 and (last.metering_quality.get('estimate_covered_seconds') or 0) >= span * .99)
     if last.power_energy_wh is None:
         return report
     report['power_net_wh'] = max(0, last.power_energy_wh - baseline * span / 3600)
@@ -122,8 +133,8 @@ def compare(
     report['coverage_percent'] = min(100, 100 * covered / span) if span > 0 else 0
     report['power_step_wh'] = quality.get('max_power_step_wh')
     report['max_report_interval_seconds'] = quality.get('max_report_interval_seconds')
-    if (not last.power_integral_valid or covered < span * .99 or span <= 0
-            or quality.get('report_count', 0) < 2):
+    report['power_complete'] = bool(last.power_integral_valid and span > 0 and covered >= span * .99 and quality.get('report_count', 0) >= 2)
+    if not report['power_complete']:
         report['reason'] = 'power_data_gap'
     elif report['power_net_wh'] <= 0:
         report['reason'] = 'no_power_energy'

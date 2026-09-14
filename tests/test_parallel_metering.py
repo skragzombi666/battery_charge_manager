@@ -169,13 +169,13 @@ class ParallelManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.manager.session.target_energy_wh, 2.75)
         self.assertEqual(len(self.manager.session.source_decision['record_ids']), 3)
 
-    def test_excluded_and_different_quantity_records_cannot_select_power(self):
+    def test_excluded_and_different_quantity_records_do_not_enter_source_target(self):
         self.calibrate()
         self.manager.calibrations['2'].valid = False
-        self.assertEqual(self.manager.calibration_summary('s', 'b', 1)['energy_source'], 'meter')
+        self.assertEqual(self.manager.calibration_summary('s', 'b', 1)['record_ids'], ['0','1'])
         self.manager.calibrations['2'].valid = True
         self.manager.calibrations['2'].quantity = 2
-        self.assertEqual(self.manager.calibration_summary('s', 'b', 1)['energy_source'], 'meter')
+        self.assertEqual(self.manager.calibration_summary('s', 'b', 1)['record_ids'], ['0','1'])
 
     async def test_voltage_and_current_are_diagnostics_only(self):
         self.setup.voltage_sensor = 'sensor.v'

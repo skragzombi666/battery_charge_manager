@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from math import isfinite
+from copy import deepcopy
+from datetime import datetime
 from typing import Any
 
 from .models import BatteryType, CalibrationRecord, ChargerSetup, IdleMeasurement, MeasurementSample
@@ -63,9 +65,30 @@ def revision_differences(
 
 def chart_samples(samples: list[MeasurementSample], limit: int = 600) -> list[dict[str, Any]]:
     """Bound chart payload while retaining endpoints and per-bucket extrema."""
+    # Reconstruct only a labelled diagnostic estimate for old records, before
+    # chart thinning. Raw persisted measurements remain untouched.
+    if samples and any(item.power_estimate_wh is None for item in samples):
+        samples = deepcopy(samples)
+        estimate = 0.0
+        for i, item in enumerate(samples):
+            if item.power_estimate_wh is not None:
+                estimate = item.power_estimate_wh
+            elif item.power_integral_valid and item.power_energy_wh is not None:
+                # Trust stored cumulative evidence across chart compaction.
+                estimate = item.power_energy_wh
+                item.power_estimate_wh = estimate
+            else:
+                if i:
+                    previous = samples[i - 1]
+                    seconds = (datetime.fromisoformat(item.timestamp) - datetime.fromisoformat(previous.timestamp)).total_seconds()
+                    if previous.power_w is not None and isfinite(previous.power_w) and previous.power_w >= 0 and 0 < seconds <= 120:
+                        estimate += previous.power_w * seconds / 3600
+                if item.power_w is not None:
+                    item.power_estimate_wh = estimate
+                    item.power_integral_valid = False
     if len(samples) <= limit:
         return [item.as_dict() for item in samples]
-    keys = ("power_w", "net_power_w", "gross_energy_wh", "net_energy_wh", "temperature_c")
+    keys = ("power_w", "net_power_w", "gross_energy_wh", "net_energy_wh", "temperature_c", "meter_energy_wh", "power_estimate_wh", "power_energy_wh")
     buckets = max(1, (limit - 2) // (2 * len(keys) + 2))
     indices = {0, len(samples) - 1}
     for bucket in range(buckets):

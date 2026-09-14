@@ -8,7 +8,7 @@ It is designed for batteries with their own charging electronics, such as USB-C 
 
 ## Current version
 
-**0.3.0**
+**0.4.0**
 
 ## Main interface
 
@@ -39,6 +39,18 @@ The integration also creates regular Home Assistant entities for automations, no
 
 ## Features
 
+### Energy curves and source settings (0.4.0)
+
+Live and historical charts show power in W, energy from the Wh counter, and
+integrated W/time energy on a shared Wh scale. Uncertain W/time sections are
+dashed and cannot establish a charge target. In **Management → Settings**, choose
+**Automatic per calibration**, **Always Wh counter**, or **Always W/time**.
+Automatic selection now evaluates each calibration individually. Source choice,
+reason, and the matching reference are retained; a running charge keeps its
+original source and target. New calibrations with a power sensor require a
+confirmed low-power tail to detect completion. See
+[0.4.0 source policy, thresholds and update behaviour](docs/version-0.4.0.md).
+
 ### Measurement export and calibration comments (0.3.0)
 
 Management provides one JSON download of all retained measurement data, including
@@ -50,13 +62,12 @@ changes retain their history and do not affect calculations. See
 ### Parallel metering (0.2.0)
 
 The integration records the cumulative energy meter, integrated active power, and
-optional voltage/current diagnostics in parallel. After at least three qualifying
-calibrations it automatically selects the practically better-resolved path using
-coverage, report cadence, consistency and repeatability. This does not establish
-absolute accuracy. Apparent energy from voltage × RMS current is diagnostic only.
-The chosen source and matching calibration reference are fixed for each charge.
-Existing meter-only profiles remain usable. See [0.2.0 measurement policy and
-update behaviour](docs/version-0.2.0.md) for thresholds and limitations.
+optional voltage/current diagnostics in parallel. Coverage, report cadence and
+consistency help compare the available sources; they do not establish absolute
+accuracy. Apparent energy from voltage × RMS current is diagnostic only.
+Existing meter-only profiles remain usable in meter and automatic mode. Version
+0.4.0 replaces the original three-calibration prerequisite for source selection;
+repeat measurements still determine profile stability.
 
 ### Charging setups
 

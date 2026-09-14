@@ -20,7 +20,7 @@ def handler_namespace():
     names = {
         "_manager", "_send_error", "ws_get_measurement",
         "ws_set_measurement_validity", "ws_set_measurement_revision_approval",
-        "ws_reanalyze_calibration", "ws_export_measurements", "ws_set_calibration_comment", "ws_start_calibration",
+        "ws_reanalyze_calibration", "ws_export_measurements", "ws_set_calibration_comment", "ws_start_calibration", "ws_set_settings",
     }
     parsed = ast.parse(path.read_text())
     functions = [node for node in parsed.body
@@ -120,3 +120,13 @@ class HistoryWebsocketTests(unittest.IsolatedAsyncioTestCase):
         await HANDLERS["ws_set_calibration_comment"](self.hass, self.connection,
             {"id": 12, "record_id": "missing", "comment": "", "expected_comment": ""})
         self.assertEqual(self.replies[-1][0], "error")
+
+
+    async def test_settings_accept_source_mode_and_keep_legacy_requests(self):
+        await HANDLERS["ws_set_settings"](self.hass,self.connection,
+            {"id": 20, "max_session_hours": 10, "energy_mode": "power"})
+        self.assertEqual(self.manager.energy_mode,"power")
+        self.assertEqual(self.replies[-1][2]["energy_mode"],"power")
+        await HANDLERS["ws_set_settings"](self.hass,self.connection,
+            {"id": 21, "max_session_hours": 12})
+        self.assertEqual(self.manager.energy_mode,"power")

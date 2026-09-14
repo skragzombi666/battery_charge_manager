@@ -21,6 +21,27 @@ const TEXT = {
     power_not_repeatable: "Die berechnete Ladeenergie schwankt zu stark.",
     finer_repeatable_power: "Wirkleistungsdaten sind feiner aufgelöst und ausreichend wiederholbar.",
     no_power_sensor: "Kein Wirkleistungssensor eingerichtet.",
+    energyMode: "Energiequelle",
+    mode_auto: "Automatisch je Kalibrierung",
+    mode_meter: "Immer Wh-Zähler",
+    mode_power: "Immer W/Zeit",
+    modeHelp: "Gilt für neue Vorgänge. Feste Quellen benötigen ebenfalls verwertbare Daten. Automatisch bestimmt jede Kalibrierung ihre Quelle; für ein Ladeziel werden nur Werte derselben Quelle zusammengefasst.",
+    forced_power: "W/Zeit wurde fest gewählt und ist vollständig aufgezeichnet.",
+    forced_meter: "Der Wh-Zähler wurde fest gewählt.",
+    finer_power_single_run: "W/Zeit ist in dieser Kalibrierung vollständig und feiner aufgelöst.",
+    legacy_meter: "Ältere Kalibrierung ohne vollständigen Quellenvergleich.",
+    no_usable_source: "Keine verwendbare Kalibrierung für die gewählte Quelle.",
+    no_meter_energy: "Kein verwertbarer Zählerzuwachs.",
+    noSource: "Keine verwendbare Quelle",
+    recordedSource: "Quelle dieser Kalibrierung",
+    currentSource: "Quelle für aktuelle Ladeziele",
+    estimateEnergy: "W/Zeit mit fortgeschriebenen Wattwerten",
+    acceptedEnergy: "W/Zeit aus akzeptierten Abschnitten",
+    usage_sources_disagree: "Nicht verwendet: Messquellen widersprechen sich",
+    usage_incomplete_power_data: "Nicht verwendet: W/Zeit unvollständig",
+    usage_no_meter_energy: "Nicht verwendet: kein Zählerzuwachs",
+    usage_other_energy_source: "Nicht verwendet: andere Energiequelle",
+    method_observed_low_power: "Bestätigte niedrige Wirkleistung",
     no_parallel_trace: "Für diese Messung fehlen parallele Aufzeichnungen.",
     power_data_gap: "Messlücke oder veraltete Wirkleistungsdaten.",
     no_power_energy: "Keine nutzbare Energie aus Wirkleistung.",
@@ -200,6 +221,27 @@ const TEXT = {
     power_not_repeatable: "Integrated charge energy varies too much.",
     finer_repeatable_power: "Active-power data are finer and sufficiently repeatable.",
     no_power_sensor: "No active-power sensor configured.",
+    energyMode: "Energy source",
+    mode_auto: "Automatic per calibration",
+    mode_meter: "Always Wh counter",
+    mode_power: "Always W/time",
+    modeHelp: "Applies to new operations. Fixed sources still require usable data. Automatic mode decides per calibration; a charge target combines values from one source only.",
+    forced_power: "W/time was explicitly selected and has complete coverage.",
+    forced_meter: "The Wh counter was explicitly selected.",
+    finer_power_single_run: "W/time is complete and finer in this calibration.",
+    legacy_meter: "Older calibration without a complete source comparison.",
+    no_usable_source: "No usable calibration for the chosen source.",
+    no_meter_energy: "No usable counter increment.",
+    noSource: "No usable source",
+    recordedSource: "Source of this calibration",
+    currentSource: "Source for current charge targets",
+    estimateEnergy: "W/time holding the last watt value",
+    acceptedEnergy: "W/time from accepted intervals",
+    usage_sources_disagree: "Not used: conflicting measurement sources",
+    usage_incomplete_power_data: "Not used: incomplete W/time",
+    usage_no_meter_energy: "Not used: no counter increment",
+    usage_other_energy_source: "Not used: different energy source",
+    method_observed_low_power: "Confirmed low active power",
     no_parallel_trace: "No parallel trace is available for this measurement.",
     power_data_gap: "Missing or stale active-power data.",
     no_power_energy: "No usable integrated active-power energy.",
@@ -626,8 +668,14 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
   const span = Math.max(1, lastTime - firstTime);
   const x = (time) => left + ((time - firstTime) / span) * (width - left - right);
   const grossOnly = mode === "idle" || mode === "gross_calibration";
+  for (const item of samples) {
+    const idle = grossOnly ? 0 : Number(item.idle_energy_wh || 0);
+    item.meter_chart_energy = Math.max(0, Number(item.meter_energy_wh ?? item.gross_energy_wh) - idle);
+    const integrated = item.power_estimate_wh ?? item.power_energy_wh;
+    item.power_chart_energy = integrated == null ? null : Math.max(0, Number(integrated) - idle);
+  }
   const powerKey = grossOnly ? "power_w" : "net_power_w";
-  const energyKey = grossOnly ? "gross_energy_wh" : "net_energy_wh";
+  const energyKey = "meter_chart_energy";
   const hasNumber = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
   const powerValues = samples.map((item) => item[powerKey]).filter(hasNumber).map(Number);
   const energyValues = samples.map((item) => item[energyKey]).filter(hasNumber).map(Number);
@@ -635,7 +683,8 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
   const targetEnergy = mode === "charging" && Number.isFinite(Number(session.target_energy_wh))
     ? Number(session.target_energy_wh)
     : 0;
-  const energyMax = Math.max(0.1, targetEnergy, ...energyValues);
+  const powerEnergyValues = samples.map(item => item.power_chart_energy).filter(hasNumber).map(Number);
+  const energyMax = Math.max(0.1, targetEnergy, ...energyValues, ...powerEnergyValues);
   const yPower = (value) => height - bottom - (Number(value) / powerMax) * (height - top - bottom);
   const yEnergy = (value) => height - bottom - (Number(value) / energyMax) * (height - top - bottom);
   const points = (key, y) => samples
@@ -644,6 +693,14 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
     .join(" ");
   const powerPoints = points(powerKey, yPower);
   const energyPoints = points(energyKey, yEnergy);
+  const powerEnergySegments = samples.slice(1).map((item, index) => {
+    const prev = samples[index];
+    if (!hasNumber(item.power_chart_energy) || !hasNumber(prev.power_chart_energy)) return "";
+    const uncertain = !item.power_integral_valid || !prev.power_integral_valid;
+    return `<polyline class="bcm-chart-power-energy" ${uncertain ? 'stroke-dasharray="5 4"' : ""} points="${x(prev.time).toFixed(1)},${yEnergy(prev.power_chart_energy).toFixed(1)} ${x(item.time).toFixed(1)},${yEnergy(item.power_chart_energy).toFixed(1)}" />`;
+  }).join("");
+  const uncertainPower = samples.some(item => item.power_chart_energy != null && !item.power_integral_valid);
+  const powerEnergyName = language === "de" ? "W/Zeit" : "W/time";
   const markerLine = (timestamp, marker) => {
     const time = new Date(timestamp || "").getTime();
     if (!Number.isFinite(time) || time < firstTime || time > lastTime) return "";
@@ -660,8 +717,8 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
     ? markerLine(new Date(firstTime + Number(session.auto_min_minutes) * 60000).toISOString(), "minimum-duration")
     : "";
   const energyName = grossOnly
-    ? (language === "de" ? "Bruttoenergie" : "Gross energy")
-    : (language === "de" ? "Nettoenergie" : "Net energy");
+    ? (language === "de" ? "Wh-Zähler (brutto)" : "Wh counter (gross)")
+    : (language === "de" ? "Wh-Zähler (netto)" : "Wh counter (net)");
   const powerName = language === "de" ? (grossOnly ? "Leistung" : "Nettoleistung") : (grossOnly ? "Power" : "Net power");
   return `<div class="bcm-session-chart ${compact ? "compact" : ""}">
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${language === "de" ? "Messkurve" : "Measurement trace"}">
@@ -673,11 +730,14 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
       ${markerLine(session.end_detected_at, "end-detected")}
       ${powerPoints ? `<polyline data-series="power" class="bcm-chart-power" points="${powerPoints}" />` : ""}
       ${energyPoints ? `<polyline data-series="energy" class="bcm-chart-energy" points="${energyPoints}" />` : ""}
+      ${powerEnergySegments ? `<g data-series="power-energy">${powerEnergySegments}</g>` : ""}
     </svg>
     <div class="bcm-chart-legend">
       ${powerPoints ? `<span><i class="power"></i>${powerName} · max ${fmt(powerMax)} W</span>` : ""}
-      ${energyPoints ? `<span><i class="energy"></i>${energyName} · max ${fmt(energyMax)} Wh</span>` : ""}
+      ${energyPoints ? `<span><i class="energy"></i>${energyName} · max ${fmt(Math.max(0,...energyValues))} Wh</span>` : ""}
+      ${powerEnergySegments ? `<span><i class="power-energy"></i>${powerEnergyName} · ${fmt(Math.max(0,...powerEnergyValues))} Wh</span>` : ""}
     </div>
+    ${uncertainPower ? `<p class="bcm-muted">${language === "de" ? "Gestrichelt: W/Zeit enthält unsichere Abschnitte oder fortgeschriebene Werte. Kein bestätigter Energieverbrauch." : "Dashed: W/time includes uncertain intervals or held values. Not confirmed energy consumption."}</p>` : ""}
   </div>`;
 };
 
@@ -760,8 +820,10 @@ const BASE_STYLE = `
   .bcm-session-chart svg { display:block; width:100%; height:auto; min-height:150px; }
   .bcm-session-chart.compact svg { min-height:100px; }
   .bcm-chart-axis { stroke:var(--divider-color); stroke-width:1; }
-  .bcm-chart-power,.bcm-chart-energy { fill:none; stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+  .bcm-chart-power,.bcm-chart-energy,.bcm-chart-power-energy { fill:none; stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
   .bcm-chart-power { stroke:var(--primary-color); }
+  .bcm-chart-power-energy { stroke:var(--bcm-power-energy-color,#a855f7); }
+  .bcm-chart-legend i.power-energy { background:var(--bcm-power-energy-color,#a855f7); }
   .bcm-chart-energy { stroke:var(--warning-color,#f9a825); }
   .bcm-chart-marker { stroke:var(--secondary-text-color); stroke-width:1; stroke-dasharray:4 4; vector-effect:non-scaling-stroke; }
   .bcm-chart-target { stroke:var(--success-color,#43a047); stroke-width:1.5; stroke-dasharray:7 4; vector-effect:non-scaling-stroke; }
@@ -1399,12 +1461,12 @@ class BatteryChargeManagerPanel extends BcmBase {
   }
 
   meteringDecision(decision = {}) {
-    return `<p><strong>${this.t("chosenSource")}: ${this.t(decision.source === "power" ? "powerSource" : "meterSource")}</strong></p><p class="bcm-muted">${this.t(decision.reason || "insufficient_calibrations")}</p>`;
+    return `<p><strong>${this.t("chosenSource")}: ${this.t(decision.source === "power" ? "powerSource" : decision.source === "meter" ? "meterSource" : "noSource")}</strong></p><p class="bcm-muted">${this.t(decision.reason || "insufficient_calibrations")}</p>`;
   }
 
   meteringComparison(report = {}) {
     if (!Object.keys(report).length) return `<p class="bcm-muted">${this.t("no_parallel_trace")}</p>`;
-    return `<section><h3>${this.t("parallel")}</h3><div class="bcm-metrics">${this.metric(this.t("counterNet"),`${fmt(report.meter_net_wh,3)} Wh`)}${this.metric(this.t("powerNet"),`${fmt(report.power_net_wh,3)} Wh`)}${this.metric(this.t("apparentSource"),`${fmt(report.apparent_energy_vah,3)} VAh`)}${this.metric(this.t("meterStep"),`${fmt(report.meter_step_wh,3)} Wh`)}${this.metric(this.t("coverage"),`${fmt(report.coverage_percent,1)} %`)}</div><p>${this.t(report.reason || "no_parallel_trace")}</p><p class="bcm-muted">${this.t("sourceHint")}</p></section>`;
+    return `<section><h3>${this.t("parallel")}</h3><div class="bcm-metrics">${this.metric(this.t("counterNet"),`${fmt(report.meter_net_wh,3)} Wh`)}${this.metric(this.t(report.power_complete ?? report.power_eligible ? "powerNet" : "acceptedEnergy"),`${fmt(report.power_net_wh,3)} Wh`)}${report.power_estimate_net_wh != null ? this.metric(this.t("estimateEnergy"),`${fmt(report.power_estimate_net_wh,3)} Wh`) : ""}${this.metric(this.t("apparentSource"),`${fmt(report.apparent_energy_vah,3)} VAh`)}${this.metric(this.t("meterStep"),`${fmt(report.meter_step_wh,3)} Wh`)}${this.metric(this.t("coverage"),`${fmt(report.coverage_percent,1)} %`)}</div><p>${this.t(report.reason || "no_parallel_trace")}</p><p class="bcm-muted">${this.t("sourceHint")}</p></section>`;
   }
 
   parallelLive(session) {
@@ -1440,7 +1502,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       ${active ? `<p class="bcm-note">${this.t("activeSessionHint")}</p>` : ""}${decision}
       <section>${action === "approve" ? "" : this.revisionComparison(d)}${d.invalid_reason ? `<p>${this.t("decisionReason")}: ${esc(d.invalid_reason)}</p>` : ""}</section>
       <section><div class="bcm-metrics">${metric("gross",`${fmt(d.gross_energy_wh)} Wh`)}${calibration ? `${metric("idleEnergy", d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_energy_wh)} Wh`)}${metric("net",d.idle_correction_status === "pending" ? this.t("pendingCorrection") : `${fmt(d.net_energy_wh)} Wh`)}${metric("baseline",d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_baseline_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.charge_duration_seconds))}${metric("peakPower",`${fmt(d.peak_power_w)} W`)}` : `${metric("measuredBaseline", d.below_detection_limit ? `&lt; ${fmt(d.upper_bound_power_w,3)} W` : `${fmt(d.median_power_w ?? d.average_power_w,3)} W`)}${metric("stdev",`${fmt(d.stdev_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.duration_seconds))}`}</div>${calibration ? `<p>${this.t("quantity")}: ${d.quantity} · ${this.t("portsUsed")}: ${esc((d.ports || []).join(" + "))}</p><p>${this.t("method")}: ${esc(this.t(`method_${d.end_method}`))} · ${this.t("analysisRevision")} ${d.analysis_revision || 1}</p>` : `<p>${this.t("measurementMode")}: ${this.t(d.mode === "automatic" ? "auto" : "fixed")} · ${this.t(d.reliable ? "reliable" : "unreliableLabel")}</p>`}${times.map(([label,value]) => `<div class="bcm-row"><span>${this.t(label)}</span><strong>${fmtDate(value,this.language)}</strong></div>`).join("")}</section>
-      ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${calibration ? this.meteringComparison(d.metering_comparison) : ""}${sourceLinks}
+      ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${calibration ? `<h3>${this.t("recordedSource")}</h3>${this.meteringDecision(d.source_decision?.policy_version ? d.source_decision : {source:d.energy_source || "meter",reason:"legacy_meter"})}${d.effective_source_decision ? `<h3>${this.t("currentSource")}</h3>${this.meteringDecision(d.effective_source_decision)}` : ""}${this.meteringComparison(d.metering_comparison)}` : ""}${sourceLinks}
       ${calibration ? `<section><h3>${this.t("calibrationComment")}</h3>${admin ? `<textarea aria-label="${this.t("calibrationComment")}" data-comment-draft>${esc(this._commentDraft ?? d.comment ?? "")}</textarea><div class="bcm-actions"><button class="bcm-btn" data-action="save-comment" ${this._busy ? "disabled" : ""}>${this.t("saveComment")}</button></div>` : `<p style="white-space:pre-wrap">${esc(d.comment || "–")}</p>`}<details data-disclosure="comment-history"><summary>${this.t("commentHistory")}</summary>${(d.comment_history || []).map(item => `<div class="bcm-note"><strong>${fmtDate(item.changed_at,this.language)}</strong><p style="white-space:pre-wrap">${esc(item.comment || "–")}</p></div>`).join("")}</details></section>` : ""}
       <details data-disclosure="changes"><summary>${this.t("changes")}</summary>${this.revisionChanges(d)}</details>
       <details data-disclosure="snapshots"><summary>${this.t("snapshots")}</summary>${snapshots}</details>
@@ -1496,7 +1558,7 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   renderSettings(admin) {
     const s = this._state;
-    return `<section class="bcm-card"><h2>${this.t("settings")}</h2><div class="bcm-note">${this.t("currentRevisionOnly")}</div>${admin ? `<div class="bcm-field"><label>${this.t("maxSession")}</label><input id="max-session" data-form-value="maxSession" type="number" min="1" max="48" step="0.5" value="${esc(this._formValues.maxSession ?? s.max_session_hours)}"></div><button class="bcm-btn" data-action="save-settings">${this.t("saveSettings")}</button>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section>`;
+    return `<section class="bcm-card"><h2>${this.t("settings")}</h2><div class="bcm-note">${this.t("currentRevisionOnly")}</div>${admin ? `<div class="bcm-field"><label for="energy-mode">${this.t("energyMode")}</label><select id="energy-mode" data-form-value="energyMode">${["auto","meter","power"].map(mode => `<option value="${mode}" ${mode === (this._formValues.energyMode ?? s.energy_mode ?? "auto") ? "selected" : ""}>${this.t(`mode_${mode}`)}</option>`).join("")}</select><p class="bcm-muted">${this.t("modeHelp")}</p></div><div class="bcm-field"><label>${this.t("maxSession")}</label><input id="max-session" data-form-value="maxSession" type="number" min="1" max="48" step="0.5" value="${esc(this._formValues.maxSession ?? s.max_session_hours)}"></div><button class="bcm-btn" data-action="save-settings">${this.t("saveSettings")}</button>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}</section>`;
   }
 
   renderDialog(admin) {
@@ -1663,6 +1725,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       });
       if (action === "save-settings") await this.call("set_settings", {
         max_session_hours: this.readNumberInput("max-session", 12),
+        energy_mode: this._formValues.energyMode ?? this._state.energy_mode ?? "auto",
       });
     } catch (_err) {}
   }
@@ -1878,4 +1941,4 @@ if (!window.customCards.some((item) => item.type === "battery-charge-manager-car
   });
 }
 
-export { BcmBase, clampNumberValue, isEditingElement };
+export { BcmBase, clampNumberValue, isEditingElement, renderSessionChart };

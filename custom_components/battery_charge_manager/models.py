@@ -49,6 +49,8 @@ class MeasurementSample:
     temperature_c: float | None = None
     switch_state: str | None = None
 
+    meter_energy_wh: float | None = None
+    power_estimate_wh: float | None = None
     power_energy_wh: float | None = None
     apparent_energy_vah: float | None = None
     voltage_v: float | None = None
@@ -61,6 +63,8 @@ class MeasurementSample:
         """Serialize sample."""
         return {
             "timestamp": self.timestamp,
+            "meter_energy_wh": self.meter_energy_wh,
+            "power_estimate_wh": self.power_estimate_wh,
             "power_energy_wh": self.power_energy_wh,
             "apparent_energy_vah": self.apparent_energy_vah,
             "voltage_v": self.voltage_v,
@@ -83,6 +87,8 @@ class MeasurementSample:
         """Deserialize sample."""
         return cls(
             timestamp=str(data.get("timestamp", "")),
+            meter_energy_wh=_float_or_none(data.get("meter_energy_wh")),
+            power_estimate_wh=_float_or_none(data.get("power_estimate_wh")),
             power_energy_wh=_float_or_none(data.get("power_energy_wh")),
             apparent_energy_vah=_float_or_none(data.get("apparent_energy_vah")),
             voltage_v=_float_or_none(data.get("voltage_v")),
@@ -431,6 +437,8 @@ class CalibrationRecord:
     revision_approvals: list[dict[str, Any]] = field(default_factory=list)
     validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
+    energy_source: str = "meter"
+    source_decision: dict[str, Any] = field(default_factory=dict)
     metering_comparison: dict[str, Any] = field(default_factory=dict)
     comment: str = ""
     comment_history: list[dict[str, Any]] = field(default_factory=list)
@@ -442,6 +450,8 @@ class CalibrationRecord:
             "comment": self.comment,
             "comment_history": self.comment_history,
             "calibration_id": self.calibration_id,
+            "energy_source": self.energy_source,
+            "source_decision": self.source_decision,
             "metering_comparison": self.metering_comparison,
             "setup_id": self.setup_id,
             "setup_revision": self.setup_revision,
@@ -502,6 +512,8 @@ class CalibrationRecord:
             comment=str(data.get("comment", "")),
             comment_history=[dict(item) for item in data.get("comment_history", [])],
             calibration_id=str(data["calibration_id"]),
+            energy_source=str(data.get("energy_source", "meter")),
+            source_decision=dict(data.get("source_decision", {})),
             metering_comparison=dict(data.get("metering_comparison", {})),
             setup_id=str(data.get("setup_id", "")),
             setup_revision=_int_or(data.get("setup_revision"), 1),

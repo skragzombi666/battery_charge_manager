@@ -264,6 +264,7 @@ async def ws_select(
     {
         vol.Required("type"): f"{DOMAIN}/set_settings",
         vol.Required("max_session_hours"): vol.Coerce(float),
+        vol.Optional("energy_mode"): vol.In(["auto", "meter", "power"]),
     }
 )
 @websocket_api.async_response
@@ -276,6 +277,8 @@ async def ws_set_settings(
     manager = _manager(hass)
     try:
         await manager.async_set_max_session_hours(msg["max_session_hours"])
+        if "energy_mode" in msg:
+            await manager.async_set_energy_mode(msg["energy_mode"])
     except HomeAssistantError as err:
         _send_error(connection, msg, err)
         return
