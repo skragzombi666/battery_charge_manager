@@ -1,19 +1,60 @@
-name: Prepare 0.4.1 workspace
+name: Verify 0.4.1 candidate
 on:
   push:
     branches: [maintenance/v0.4.1-build]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  snapshot:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/upload-artifact@v4
         with:
-          name: source-041
-          path: |
-            .
-            !.git
-          include-hidden-files: true
-          retention-days: 1
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Apply exact locally verified candidate on original main
+        shell: bash
+        run: |
+          cat .release041/patch.{0,1,2,3} | base64 --decode > /tmp/bcm-041.patch.xz
+          echo 'c645ab232112efaca430cc62382ee2c33a91c4cbef03bd356b26dd143b846998  /tmp/bcm-041.patch.xz' | sha256sum --check
+          xz --decompress --stdout /tmp/bcm-041.patch.xz > /tmp/bcm-041.patch
+          echo '5b72140e58b95c10195c165d9e2f95008b26777884715836f89d908111f813e5  /tmp/bcm-041.patch' | sha256sum --check
+          git checkout --detach f56c8135f4da86ece1f3b8905375d396f7c95936
+          git apply --unidiff-zero --index /tmp/bcm-041.patch
+          test "$(git write-tree)" = e7895373ae5721956318789f199aee04af58dce0
+          git diff --cached --check
+      - name: Backend regression suite
+        run: python -m unittest discover -s tests -v
+      - name: Frontend regression suite
+        run: node --test tests/*.mjs
+      - name: Syntax and metadata
+        shell: bash
+        run: |
+          python -m compileall -q custom_components tests
+          node --check custom_components/battery_charge_manager/frontend/battery-charge-manager.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in Path('.').glob('**/*.json'):
+              json.loads(path.read_text())
+          PY
+      - name: Home Assistant integration validation
+        uses: home-assistant/actions/hassfest@master
+      - name: Publish clean verified commit to candidate branch only
+        shell: bash
+        run: |
+          git diff --quiet
+          test "$(git write-tree)" = e7895373ae5721956318789f199aee04af58dce0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'v0.4.1: fix charging phases and dual-source energy handling' -m 'Use sustained fresh power evidence with reversible taper hints. Show both energy paths in gross and net tiles, distinguish estimates and source selection, and handle a non-advancing cumulative counter without accepting incomplete integration. Preserve source-matched limits, raw history and safety checks.'
+          git push origin HEAD:refs/heads/maintenance/v0.4.1-verified
+          echo "VERIFIED_COMMIT=$(git rev-parse HEAD)"
+          echo "VERIFIED_TREE=$(git rev-parse HEAD^{tree})"
+          echo "Candidate commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
