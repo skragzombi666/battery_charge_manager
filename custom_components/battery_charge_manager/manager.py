@@ -86,7 +86,7 @@ from .const import (
     STORAGE_VERSION,
     VERSION,
 )
-from . import metering, energy_policy
+from . import metering, energy_policy, phase_tracking
 from .models import (
     BatteryType,
     CalibrationRecord,
@@ -719,7 +719,9 @@ class BatteryChargeManager:
                 record.energy_at_detection_wh = max(0, gross - (record.idle_baseline_power_w or 0) * span / 3600)
         if value is not None:
             record.net_energy_wh = value
-            record.gross_energy_wh = value + record.idle_energy_wh
+            gross_key = "power_gross_wh" if choice["source"] == "power" else "meter_gross_wh"
+            gross = report.get(gross_key)
+            record.gross_energy_wh = gross if gross is not None else value + record.idle_energy_wh
         if choice["source"] is None:
             record.confidence = CONFIDENCE_LOW
 
@@ -973,7 +975,7 @@ class BatteryChargeManager:
         setup = self._require_setup()
         battery = self._require_battery()
         if self.energy_mode == "power" and not setup.power_sensor:
-            raise HomeAssistantError("W/time mode requires a configured power sensor")
+            raise HomeAssistantError("Power integration requires a configured active-power sensor")
         await self._async_begin_session(
             mode=SESSION_CALIBRATING,
             setup=setup,
@@ -1310,7 +1312,13 @@ class BatteryChargeManager:
         if self.session.mode != SESSION_CALIBRATING:
             raise HomeAssistantError("No calibration session is active")
         if self.session.net_energy_wh <= 0:
-            raise HomeAssistantError("Calibration measured no net energy")
+            endpoint = self.session.last_significant_at or self.session.last_sample_at
+            report = metering.compare(
+                self.session.samples, endpoint, self.session.idle_baseline_power_w or 0,
+                self.session.switch_on_at or self.session.session_started_at)
+            choice = energy_policy.choose(report, self.session.source_decision.get("mode", "meter"))
+            if choice["source"] != "power":
+                raise HomeAssistantError("Calibration measured no usable net energy for the selected source")
         record = await self._async_complete_calibration(
             automatic=False, reason="Calibration manually completed"
         )
@@ -1793,16 +1801,7 @@ class BatteryChargeManager:
                     self.session.last_significant_net_energy_wh = (
                         current_sample.net_energy_wh
                     )
-        if self.session.taper_started_at is None and peak >= 0.5:
-            recent = self._samples_since(now - timedelta(minutes=5))
-            powers = [
-                item.net_power_w
-                for item in recent
-                if item.net_power_w is not None
-            ]
-            if powers and median(powers) <= peak * 0.6:
-                self.session.taper_started_at = recent[0].timestamp
-                self.session.phase = PHASE_TAPER
+        phase_tracking.update(self.session, now)
 
     def _detect_calibration_end(self, now: datetime) -> bool:
         """Recognize and retrospectively anchor a stable end-of-charge plateau."""
@@ -1904,15 +1903,18 @@ class BatteryChargeManager:
         summary = self.calibration_summary(
             setup_id, battery_id, self.session.quantity
         )
-        references = [self.calibrations[key].metering_comparison.get("meter_net_wh", self.calibrations[key].net_energy_wh)
-                      for key in summary.get("record_ids", [])]
-        known = median(references) if references else None
+        # Use the same eligible, source-matched reference as normal charging.
+        known = summary.get("median_net_energy_wh")
         limit = (
             float(known) * DEFAULT_CALIBRATION_MAX_FACTOR
             if known
             else DEFAULT_CALIBRATION_ABSOLUTE_MAX_WH
         )
-        return self.session.net_energy_wh > limit
+        # The cumulative counter can stall while real energy is still delivered.
+        # Accepted integration can only tighten this stop, never relax a limit.
+        integrated = max(0.0, self.session.metering.get("power_wh", 0.0)
+                         - self.session.idle_energy_wh)
+        return max(self.session.net_energy_wh, integrated) > limit
 
     async def _async_complete_normal_charge(self, reason: str) -> None:
         """Safely finish a normal relative-energy charge."""
@@ -2532,6 +2534,13 @@ class BatteryChargeManager:
             dt_util.utcnow(),
         ) if self.session.session_started_at else 0.0
         session["sample_count"] = len(self.session.samples)
+        setup = self.setups.get(self.session.setup_id or "")
+        session["power_sensor_configured"] = bool(setup and setup.power_sensor)
+        session["metering_comparison"] = metering.compare(
+            self.session.samples, self.session.last_sample_at,
+            self.session.idle_baseline_power_w or 0,
+            self.session.switch_on_at or self.session.session_started_at)
+
         chart_limit = 240
         raw_chart_samples = self.session.samples
         if len(raw_chart_samples) <= chart_limit:

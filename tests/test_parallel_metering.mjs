@@ -14,9 +14,9 @@ test('parallel comparison labels apparent energy as diagnostic and does not prom
 });
 test('source selection exposes reason and frozen live source',()=>{
  const p=panel();const html=p.meteringDecision({source:'power',reason:'finer_repeatable_power',count:3});
- assert.match(html,/Wirkleistung/);assert.match(html,/wiederholbar/);
+ assert.match(html,/Leistungsintegration/);assert.match(html,/wiederholbar/);
  const live=p.parallelLive({energy_source:'power',metering:{meter_wh:2,power_wh:1.9,apparent_vah:4,apparent_valid:true}});
- assert.match(live,/VAh/);assert.match(live,/Wirkleistung/);
+ assert.match(live,/VAh/);assert.match(live,/Leistungsintegration/);
 });
 test('setup has optional voltage and RMS current selectors and blank values stay null',()=>{
  const p=panel();p._dialog='setup';p._draft={};
@@ -33,8 +33,8 @@ test('counter and W/time curves retain separate net values on the same energy sc
  ];
  const html=renderSessionChart({chart_samples},'calibrating','de');
  for(const series of ['power','energy','power-energy']) assert.match(html,new RegExp(`data-series="${series}"`));
- assert.match(html,/Wh-Zähler \(netto\) · max 5\.80 Wh/);
- assert.match(html,/W\/Zeit · 5\.60 Wh/);
+ assert.match(html,/Energiezähler \(netto\) · max 5\.80 Wh/);
+ assert.match(html,/Leistungsintegration · 5\.60 Wh/);
  assert.doesNotMatch(html,/stroke-dasharray/,'display thinning must not turn valid integration into uncertainty');
  const meterEnd=html.match(/data-series="energy"[^>]*points="[^"]* ([0-9.]+),([0-9.]+)"/);
  const integratedEnd=html.match(/class="bcm-chart-power-energy"[^>]*points="[^"]* ([0-9.]+),([0-9.]+)"/);
@@ -44,8 +44,8 @@ test('counter and W/time curves retain separate net values on the same energy sc
  chart_samples[1].power_integral_valid=false;
  const uncertain=renderSessionChart({chart_samples},'calibrating','de');
  assert.match(uncertain,/stroke-dasharray/);
- assert.match(uncertain,/W\/Zeit · 6\.30 Wh/);
- assert.match(uncertain,/Kein bestätigter Energieverbrauch/);
+ assert.match(uncertain,/Leistungsintegration · 6\.30 Wh/);
+ assert.match(uncertain,/kein bestätigter Energieverbrauch/);
 });
 
 test('settings show all modes, preserve persisted selection, and submit the new choice',async()=>{

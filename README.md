@@ -8,7 +8,7 @@ It is designed for batteries with their own charging electronics, such as USB-C 
 
 ## Current version
 
-**0.4.0**
+**0.4.1**
 
 ## Main interface
 
@@ -39,17 +39,29 @@ The integration also creates regular Home Assistant entities for automations, no
 
 ## Features
 
-### Energy curves and source settings (0.4.0)
+### Phase tracking and parallel energy display (0.4.1)
 
-Live and historical charts show power in W, energy from the Wh counter, and
-integrated W/time energy on a shared Wh scale. Uncertain W/time sections are
-dashed and cannot establish a charge target. In **Management → Settings**, choose
-**Automatic per calibration**, **Always Wh counter**, or **Always W/time**.
-Automatic selection now evaluates each calibration individually. Source choice,
-reason, and the matching reference are retained; a running charge keeps its
-original source and target. New calibrations with a power sensor require a
-confirmed low-power tail to detect completion. See
-[0.4.0 source policy, thresholds and update behaviour](docs/version-0.4.0.md).
+Gross and net energy tiles always show both **Energy meter** and **Power
+integration** (German: **Energiezähler** / **Leistungsintegration**), independently
+of the selected mode. Missing values, pending idle correction and estimates are
+identified explicitly. The source setting is separate from the operational source;
+automatic calibration selection is shown as pending until completion.
+
+The taper hint now requires a sustained reduction from an established charging
+power level. Startup zeros and isolated spikes no longer trigger it, and sustained
+recovery returns to main charging. End confirmation remains an independent check.
+
+Automatic selection can use a complete, sufficiently resolved active-power integral
+when the gross counter increment is zero. Estimates and gaps do not qualify, and
+fixed modes never silently switch. Manual completion and energy safety checks also
+handle that zero-counter case. See
+[0.4.1 behaviour, thresholds and retained data](docs/version-0.4.1.md).
+
+Live and historical charts continue to show power in W and both energy paths on a
+shared Wh scale. In **Management → Settings**, choose **Automatic selection**,
+**Always Energy meter**, or **Always Power integration**. Each normal charge retains
+its original source and matching target. Repeated calibration measures stability;
+measurement coverage does not establish absolute accuracy.
 
 ### Measurement export and calibration comments (0.3.0)
 

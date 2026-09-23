@@ -628,6 +628,7 @@ class ChargeSession:
     requested_duration_minutes: float | None = None
     auto_min_minutes: float | None = None
     auto_max_minutes: float | None = None
+    phase_tracking: dict[str, Any] = field(default_factory=dict)
     metering: dict[str, Any] = field(default_factory=dict)
     energy_source: str = "meter"
     source_decision: dict[str, Any] = field(default_factory=dict)
@@ -649,6 +650,7 @@ class ChargeSession:
             "metering": self.metering,
             "energy_source": self.energy_source,
             "source_decision": self.source_decision,
+            "phase_tracking": dict(self.phase_tracking),
             "mode": self.mode,
             "phase": self.phase,
             "setup_id": self.setup_id,
@@ -710,6 +712,7 @@ class ChargeSession:
             comment=str(data.get("comment", "")),
             comment_history=[dict(item) for item in data.get("comment_history", [])],
             session_id=data.get("session_id"),
+            phase_tracking=dict(data.get("phase_tracking", {})),
             metering=dict(data.get("metering", {})),
             energy_source=str(data.get("energy_source", "meter")),
             source_decision=dict(data.get("source_decision", {})),

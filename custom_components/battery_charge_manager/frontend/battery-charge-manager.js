@@ -3,12 +3,22 @@ const BCM_PANEL_PATH = "/battery-charge-manager";
 
 const TEXT = {
   de: {
+    sourceSelection: "Auswahlmodus",
+    selectionPending: "Entscheidung nach Abschluss der Kalibration.",
+    fixedSelection: "Fest gewählte Quelle; verwertbare Messdaten erforderlich.",
+    integrationComplete: "Messabdeckung vollständig",
+    integrationEstimated: "geschätzt / unvollständig",
+    integrationPartial: "Teilwert / unvollständig",
+    energyUnavailable: "nicht verfügbar",
+    counterNoChange: "Kein Zählerzuwachs trotz positiver Leistungsintegration. Der Zählerwert ist kein Nachweis für Nullverbrauch.",
+    counter_not_advancing: "Kein Zählerzuwachs; vollständige, zeitlich ausreichend aufgelöste Leistungsintegration verwendet.",
+    baselineLowerBound: "rechnerische Untergrenze",
     parallel: "Messwertvergleich",
     meterSource: "Energiezähler",
-    powerSource: "Energie aus Wirkleistung",
+    powerSource: "Leistungsintegration",
     apparentSource: "U × I · nur Plausibilität",
-    chosenSource: "Verwendete Messgrundlage",
-    sourceHint: "Automatische Auswahl nach Datenqualität; keine nachgewiesene absolute Genauigkeit.",
+    chosenSource: "Verwendete Energiequelle",
+    sourceHint: "Beide Messwege bleiben sichtbar. Leistungsintegration ist das Zeitintegral der Wirkleistung. Vollständige Messabdeckung ist kein Nachweis absoluter Genauigkeit.",
     meterStep: "Beobachteter Zählerschritt",
     coverage: "Datenabdeckung Wirkleistung",
     voltageSensor: "Effektivspannung (optional, sonst automatisch)",
@@ -22,23 +32,23 @@ const TEXT = {
     finer_repeatable_power: "Wirkleistungsdaten sind feiner aufgelöst und ausreichend wiederholbar.",
     no_power_sensor: "Kein Wirkleistungssensor eingerichtet.",
     energyMode: "Energiequelle",
-    mode_auto: "Automatisch je Kalibrierung",
-    mode_meter: "Immer Wh-Zähler",
-    mode_power: "Immer W/Zeit",
+    mode_auto: "Automatische Auswahl",
+    mode_meter: "Immer Energiezähler",
+    mode_power: "Immer Leistungsintegration",
     modeHelp: "Gilt für neue Vorgänge. Feste Quellen benötigen ebenfalls verwertbare Daten. Automatisch bestimmt jede Kalibrierung ihre Quelle; für ein Ladeziel werden nur Werte derselben Quelle zusammengefasst.",
-    forced_power: "W/Zeit wurde fest gewählt und ist vollständig aufgezeichnet.",
-    forced_meter: "Der Wh-Zähler wurde fest gewählt.",
-    finer_power_single_run: "W/Zeit ist in dieser Kalibrierung vollständig und feiner aufgelöst.",
+    forced_power: "Leistungsintegration wurde fest gewählt und ist vollständig aufgezeichnet.",
+    forced_meter: "Der Energiezähler wurde fest gewählt.",
+    finer_power_single_run: "Leistungsintegration ist in dieser Kalibrierung vollständig und feiner aufgelöst.",
     legacy_meter: "Ältere Kalibrierung ohne vollständigen Quellenvergleich.",
     no_usable_source: "Keine verwendbare Kalibrierung für die gewählte Quelle.",
     no_meter_energy: "Kein verwertbarer Zählerzuwachs.",
     noSource: "Keine verwendbare Quelle",
     recordedSource: "Quelle dieser Kalibrierung",
     currentSource: "Quelle für aktuelle Ladeziele",
-    estimateEnergy: "W/Zeit mit fortgeschriebenen Wattwerten",
-    acceptedEnergy: "W/Zeit aus akzeptierten Abschnitten",
+    estimateEnergy: "Leistungsintegration · Schätzung",
+    acceptedEnergy: "Akzeptierte Abschnitte · Teilwert",
     usage_sources_disagree: "Nicht verwendet: Messquellen widersprechen sich",
-    usage_incomplete_power_data: "Nicht verwendet: W/Zeit unvollständig",
+    usage_incomplete_power_data: "Nicht verwendet: Leistungsintegration unvollständig",
     usage_no_meter_energy: "Nicht verwendet: kein Zählerzuwachs",
     usage_other_energy_source: "Nicht verwendet: andere Energiequelle",
     method_observed_low_power: "Bestätigte niedrige Wirkleistung",
@@ -203,12 +213,22 @@ const TEXT = {
     automaticExplanation: "Die Messung läuft mindestens bis zur Mindestdauer und endet erst, wenn der Messwert über mehrere Zeitfenster stabil und für die Sensorauflösung ausreichend belastbar ist. Spätestens bei der Maximaldauer wird sie beendet.",
   },
   en: {
+    sourceSelection: "Selection mode",
+    selectionPending: "Decision after calibration completes.",
+    fixedSelection: "Fixed source; usable measurement data required.",
+    integrationComplete: "Complete measurement coverage",
+    integrationEstimated: "estimated / incomplete",
+    integrationPartial: "partial / incomplete",
+    energyUnavailable: "not available",
+    counterNoChange: "No counter increment despite positive integrated energy. The counter value does not establish zero consumption.",
+    counter_not_advancing: "No counter increment; complete, sufficiently time-resolved power integration used.",
+    baselineLowerBound: "calculation lower bound",
     parallel: "Measurement comparison",
     meterSource: "Energy meter",
-    powerSource: "Integrated active power",
+    powerSource: "Power integration",
     apparentSource: "V × I · plausibility only",
     chosenSource: "Selected measurement source",
-    sourceHint: "Automatic selection by data quality; absolute accuracy is not established.",
+    sourceHint: "Both measurement paths remain visible. Power integration is the time integral of active power. Complete coverage does not establish absolute accuracy.",
     meterStep: "Observed counter increment",
     coverage: "Active-power data coverage",
     voltageSensor: "RMS voltage (optional, otherwise automatic)",
@@ -222,23 +242,23 @@ const TEXT = {
     finer_repeatable_power: "Active-power data are finer and sufficiently repeatable.",
     no_power_sensor: "No active-power sensor configured.",
     energyMode: "Energy source",
-    mode_auto: "Automatic per calibration",
-    mode_meter: "Always Wh counter",
-    mode_power: "Always W/time",
+    mode_auto: "Automatic selection",
+    mode_meter: "Always Energy meter",
+    mode_power: "Always Power integration",
     modeHelp: "Applies to new operations. Fixed sources still require usable data. Automatic mode decides per calibration; a charge target combines values from one source only.",
-    forced_power: "W/time was explicitly selected and has complete coverage.",
-    forced_meter: "The Wh counter was explicitly selected.",
-    finer_power_single_run: "W/time is complete and finer in this calibration.",
+    forced_power: "Power integration was explicitly selected and has complete coverage.",
+    forced_meter: "The Energy meter was explicitly selected.",
+    finer_power_single_run: "Power integration is complete and finer in this calibration.",
     legacy_meter: "Older calibration without a complete source comparison.",
     no_usable_source: "No usable calibration for the chosen source.",
     no_meter_energy: "No usable counter increment.",
     noSource: "No usable source",
     recordedSource: "Source of this calibration",
     currentSource: "Source for current charge targets",
-    estimateEnergy: "W/time holding the last watt value",
-    acceptedEnergy: "W/time from accepted intervals",
+    estimateEnergy: "Power integration · estimate",
+    acceptedEnergy: "Accepted intervals · partial value",
     usage_sources_disagree: "Not used: conflicting measurement sources",
-    usage_incomplete_power_data: "Not used: incomplete W/time",
+    usage_incomplete_power_data: "Not used: incomplete Power integration",
     usage_no_meter_energy: "Not used: no counter increment",
     usage_other_energy_source: "Not used: different energy source",
     method_observed_low_power: "Confirmed low active power",
@@ -645,6 +665,38 @@ const fmtTime = (value, language) => new Intl.DateTimeFormat(language === "de" ?
   hour: "2-digit", minute: "2-digit",
 }).format(new Date(value));
 
+
+const energyNumber = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+
+const energyReadings = (data) => {
+  const m = data.metering || {};
+  const r = data.metering_comparison || {};
+  const idleKnown = data.mode === "idle_measuring" ||
+    (energyNumber(data.idle_baseline_power_w) !== null && data.idle_correction_status !== "pending");
+  const idle = idleKnown ? energyNumber(data.idle_energy_wh) : null;
+  // Old reports may contain only net totals. A clamped zero cannot reconstruct
+  // gross energy when a positive idle correction was subtracted.
+  const grossFromNet = (net) => energyNumber(net) !== null && idle !== null && (net > 0 || idle === 0) ? net + idle : null;
+  const source = data.energy_source || "meter";
+  const meterGross = energyNumber(m.meter_wh) ?? energyNumber(r.meter_gross_wh) ??
+    (source === "meter" ? energyNumber(data.gross_energy_wh) : null) ?? grossFromNet(r.meter_net_wh);
+  const powerAvailable = data.power_sensor_configured !== false;
+  const acceptedGross = powerAvailable ? energyNumber(m.power_wh) ?? energyNumber(r.power_gross_wh) ??
+    grossFromNet(r.power_net_wh) ?? (source === "power" ? energyNumber(data.gross_energy_wh) : null) : null;
+  const estimateGross = powerAvailable ? energyNumber(m.power_estimate_wh) ?? energyNumber(r.power_estimate_gross_wh) ??
+    grossFromNet(r.power_estimate_net_wh) : null;
+  const powerGross = estimateGross ?? acceptedGross;
+  const complete = Boolean(r.power_complete ?? r.power_eligible ??
+    (m.power_valid && m.total_seconds > 0 && m.covered_seconds >= m.total_seconds * .99 && m.report_count >= 2));
+  const sameValue = estimateGross === null || (acceptedGross !== null && Math.abs(estimateGross - acceptedGross) < 1e-6);
+  const status = powerGross === null ? "energyUnavailable" :
+    complete && sameValue ? "integrationComplete" : estimateGross !== null ? "integrationEstimated" : "integrationPartial";
+  const net = (gross) => gross === null || idle === null ? null : Math.max(0, gross - idle);
+  return {meterGross, powerGross, acceptedGross, idle, idleKnown,
+    meterNet: net(meterGross), powerNet: net(powerGross), status,
+    counterNotAdvancing: meterGross === 0 && powerGross !== null && powerGross >= .1};
+};
+
 const renderSessionChart = (session, mode, language = "en", compact = false) => {
   const samples = (session?.chart_samples || [])
     .map((item) => ({ ...item, time: new Date(item.timestamp).getTime() }))
@@ -670,9 +722,10 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
   const grossOnly = mode === "idle" || mode === "gross_calibration";
   for (const item of samples) {
     const idle = grossOnly ? 0 : Number(item.idle_energy_wh || 0);
-    item.meter_chart_energy = Math.max(0, Number(item.meter_energy_wh ?? item.gross_energy_wh) - idle);
-    const integrated = item.power_estimate_wh ?? item.power_energy_wh;
-    item.power_chart_energy = integrated == null ? null : Math.max(0, Number(integrated) - idle);
+    const meter = energyNumber(item.meter_energy_wh) ?? energyNumber(item.gross_energy_wh);
+    item.meter_chart_energy = meter === null ? null : Math.max(0, meter - idle);
+    const integrated = energyNumber(item.power_estimate_wh) ?? energyNumber(item.power_energy_wh);
+    item.power_chart_energy = integrated === null ? null : Math.max(0, integrated - idle);
   }
   const powerKey = grossOnly ? "power_w" : "net_power_w";
   const energyKey = "meter_chart_energy";
@@ -700,7 +753,7 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
     return `<polyline class="bcm-chart-power-energy" ${uncertain ? 'stroke-dasharray="5 4"' : ""} points="${x(prev.time).toFixed(1)},${yEnergy(prev.power_chart_energy).toFixed(1)} ${x(item.time).toFixed(1)},${yEnergy(item.power_chart_energy).toFixed(1)}" />`;
   }).join("");
   const uncertainPower = samples.some(item => item.power_chart_energy != null && !item.power_integral_valid);
-  const powerEnergyName = language === "de" ? "W/Zeit" : "W/time";
+  const powerEnergyName = language === "de" ? "Leistungsintegration" : "Power integration";
   const markerLine = (timestamp, marker) => {
     const time = new Date(timestamp || "").getTime();
     if (!Number.isFinite(time) || time < firstTime || time > lastTime) return "";
@@ -717,8 +770,8 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
     ? markerLine(new Date(firstTime + Number(session.auto_min_minutes) * 60000).toISOString(), "minimum-duration")
     : "";
   const energyName = grossOnly
-    ? (language === "de" ? "Wh-Zähler (brutto)" : "Wh counter (gross)")
-    : (language === "de" ? "Wh-Zähler (netto)" : "Wh counter (net)");
+    ? (language === "de" ? "Energiezähler (brutto)" : "Energy meter (gross)")
+    : (language === "de" ? "Energiezähler (netto)" : "Energy meter (net)");
   const powerName = language === "de" ? (grossOnly ? "Leistung" : "Nettoleistung") : (grossOnly ? "Power" : "Net power");
   return `<div class="bcm-session-chart ${compact ? "compact" : ""}">
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${language === "de" ? "Messkurve" : "Measurement trace"}">
@@ -737,7 +790,7 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
       ${energyPoints ? `<span><i class="energy"></i>${energyName} · max ${fmt(Math.max(0,...energyValues))} Wh</span>` : ""}
       ${powerEnergySegments ? `<span><i class="power-energy"></i>${powerEnergyName} · ${fmt(Math.max(0,...powerEnergyValues))} Wh</span>` : ""}
     </div>
-    ${uncertainPower ? `<p class="bcm-muted">${language === "de" ? "Gestrichelt: W/Zeit enthält unsichere Abschnitte oder fortgeschriebene Werte. Kein bestätigter Energieverbrauch." : "Dashed: W/time includes uncertain intervals or held values. Not confirmed energy consumption."}</p>` : ""}
+    ${uncertainPower ? `<p class="bcm-muted">${language === "de" ? "Gestrichelt: Die Leistungsintegration enthält unvollständig erfasste oder fortgeschriebene Leistungswerte. Nur eine Schätzung, kein bestätigter Energieverbrauch." : "Dashed: Power integration includes incomplete observations or held power values. An estimate, not confirmed energy consumption."}</p>` : ""}
   </div>`;
 };
 
@@ -798,6 +851,13 @@ const BASE_STYLE = `
   .bcm-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
   .bcm-metric { background:var(--secondary-background-color); border-radius:10px; padding:10px; }
   .bcm-metric strong { display:block; font-size:18px; margin-top:4px; }
+  .bcm-metric > strong > small { display:block; font-size:12px; font-weight:normal; margin-top:4px; }
+  .bcm-energy-metric { min-width:0; }
+  .bcm-energy-row { margin-top:10px; overflow-wrap:anywhere; }
+  .bcm-energy-row > span, .bcm-energy-row small { display:block; font-size:12px; }
+  .bcm-energy-row strong { font-variant-numeric:tabular-nums; }
+  .bcm-source-selection { margin:8px 0 12px; overflow-wrap:anywhere; }
+  .bcm-source-selection strong, .bcm-source-selection small { display:block; margin-top:4px; }
   .bcm-list { display:flex; flex-direction:column; gap:10px; }
   .bcm-list-item { border:1px solid var(--divider-color); border-radius:12px; padding:12px; }
   .bcm-list-head { display:flex; gap:12px; align-items:center; justify-content:space-between; }
@@ -1177,7 +1237,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const ports = (session.ports?.length ? session.ports : selectedPorts(s)).join(" + ") || "–";
     return `<div class="bcm-grid">
       <section class="bcm-card">
-        <h2>${this.t("liveCharge")}</h2><p>${this.t("chosenSource")}: <strong>${this.t(session.energy_source === "power" ? "powerSource" : "meterSource")}</strong></p>
+        <h2>${this.t("liveCharge")}</h2>${this.parallelLive(session)}
         <div class="bcm-port-note">${this.t("connectTo")}: ${esc(ports)}</div>
         <div class="bcm-row"><span>${this.t("phase")}</span><strong>${esc(phaseLabel(session.phase,this.language))}</strong></div>
         <div class="bcm-progress"><div style="width:${progress}%"></div></div>
@@ -1185,12 +1245,12 @@ class BatteryChargeManagerPanel extends BcmBase {
         <div class="bcm-metrics">
           ${this.metric(this.t("elapsed"), fmtDuration(session.elapsed_seconds))}
           ${this.metric(this.t("targetEnergy"), `${fmt(session.target_energy_wh)} Wh`)}
-          ${this.metric(this.t("net"), `${fmt(session.net_energy_wh)} Wh`)}
+          ${this.energyMetric("net", session)}
           ${this.metric(this.t("power"), `${fmt(session.current_power_w)} W`)}
-          ${this.metric(this.t("gross"), `${fmt(session.gross_energy_wh)} Wh`)}
-          ${this.metric(this.t("idleEnergy"), `${fmt(session.idle_energy_wh)} Wh`)}
+          ${this.energyMetric("gross", session)}
+          ${this.metric(this.t("idleEnergy"), energyReadings(session).idleKnown ? `${fmt(session.idle_energy_wh,3)} Wh` : this.t("pendingCorrection"))}
         </div>
-        ${renderSessionChart(session,"charging",this.language)}${this.parallelLive(session)}
+        ${renderSessionChart(session,"charging",this.language)}
         <div class="bcm-actions"><button class="bcm-btn danger" data-action="stop" ${this._busy ? "disabled" : ""}>${this.t("stop")}</button></div>
       </section>
       <section class="bcm-card">
@@ -1233,6 +1293,25 @@ class BatteryChargeManagerPanel extends BcmBase {
   }
 
   metric(label, value) { return `<div class="bcm-metric"><span class="bcm-muted">${label}</span><strong>${value}</strong></div>`; }
+
+  energyMetric(kind, session) {
+    const values = energyReadings(session);
+    const net = kind === "net";
+    const missingCorrection = net && !values.idleKnown;
+    const row = (source, value, status = "") => `<div class="bcm-energy-row" data-energy-source="${source}"><span>${this.t(source === "meter" ? "meterSource" : "powerSource")}</span><strong>${missingCorrection ? "–" : value === null ? "–" : `${fmt(value,3)} Wh`}</strong>${status && !missingCorrection ? `<small class="bcm-muted">${this.t(status)}</small>` : ""}</div>`;
+    return `<section class="bcm-metric bcm-energy-metric" data-energy-kind="${kind}"><span class="bcm-muted">${this.t(net ? "net" : "gross")}</span>${row("meter", net ? values.meterNet : values.meterGross, values.meterGross === null ? "energyUnavailable" : "")}${row("power", net ? values.powerNet : values.powerGross, values.status)}${missingCorrection ? `<small class="bcm-muted">${this.t("pendingCorrection")}</small>` : ""}</section>`;
+  }
+
+  energySourceHeader(session) {
+    const choice = session.source_decision || {};
+    if (session.mode === "calibrating" && !session.session_finished_at) {
+      const mode = choice.mode || "meter";
+      return `<div class="bcm-source-selection"><span class="bcm-muted">${this.t("sourceSelection")}</span><strong>${this.t(`mode_${mode}`)}</strong><small class="bcm-muted">${this.t(mode === "auto" ? "selectionPending" : "fixedSelection")}</small></div>`;
+    }
+    const selected = choice.calibration_choice ? choice.calibration_choice.source : session.energy_source;
+    return `<div class="bcm-source-selection"><span class="bcm-muted">${this.t("chosenSource")}</span><strong>${this.t(selected === "power" ? "powerSource" : selected === "meter" ? "meterSource" : "noSource")}</strong></div>`;
+  }
+
 
   renderBatteries(admin) {
     const s = this._state;
@@ -1282,7 +1361,7 @@ class BatteryChargeManagerPanel extends BcmBase {
         ${fixed ? this.metric(this.t("remaining"), fmtDuration(remaining)) : this.metric(this.t("minRemaining"), fmtDuration(minRemaining))}
         ${fixed ? this.metric(this.t("plannedEnd"), fmtClockFromNow(remaining,this.language)) : this.metric(this.t("maxDuration"), fmtDuration(Number(session.auto_max_minutes || 0) * 60))}
         ${this.metric(this.t("power"), `${fmt(session.current_power_w)} W`)}
-        ${this.metric(this.t("gross"), `${fmt(session.gross_energy_wh)} Wh`)}
+        ${this.energyMetric("gross", session)}
         ${this.metric(this.t("measurements"), String(session.sample_count || 0))}
         ${this.metric(this.t("preliminaryValue"), preliminary)}
         ${this.metric(this.t("stability"), assessment.stable ? this.t("reliable") : this.t("pendingCorrection"))}
@@ -1319,7 +1398,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const setup = s.setups.find(item => item.setup_id === (session.setup_id || s.selected_setup_id));
     const battery = s.batteries.find((item) => item.battery_id === (session.battery_id || s.selected_battery_id));
     const ports = (session.ports?.length ? session.ports : selectedPorts(s)).join(" + ") || "–";
-    const correction = session.idle_baseline_power_w === null || session.idle_baseline_power_w === undefined ? this.t("pendingCorrection") : this.t("valid");
+    const correction = energyNumber(session.idle_baseline_power_w) === null ? this.t("pendingCorrection") : `${fmt(session.idle_baseline_power_w,3)} W${s.active_idle_summary?.baseline_is_lower_bound ? `<small class="bcm-muted">${this.t("baselineLowerBound")}</small>` : ""}`;
     return `
       <h2>${this.t("liveCalibration")}</h2>${this.parallelLive(session)}<div class="bcm-row"><span>${this.t("setup")}</span><strong>${esc(setup?.name || "–")}</strong></div>
       <div class="bcm-row"><span>${this.t("battery")}</span><strong>${esc(battery?.name || "–")}</strong></div>
@@ -1329,15 +1408,15 @@ class BatteryChargeManagerPanel extends BcmBase {
       <div class="bcm-metrics">
         ${this.metric(this.t("elapsed"), fmtDuration(session.elapsed_seconds))}
         ${this.metric(this.t("power"), `${fmt(session.current_power_w)} W`)}
+        ${this.energyMetric("gross", session)}
+        ${this.energyMetric("net", session)}
         ${this.metric(this.t("peakPower"), `${fmt(session.peak_power_w)} W`)}
-        ${this.metric(this.t("gross"), `${fmt(session.gross_energy_wh)} Wh`)}
-        ${this.metric(this.t("idleEnergy"), `${fmt(session.idle_energy_wh)} Wh`)}
-        ${this.metric(this.t("net"), `${fmt(session.net_energy_wh)} Wh`)}
+        ${this.metric(this.t("idleEnergy"), energyReadings(session).idleKnown ? `${fmt(session.idle_energy_wh,3)} Wh` : this.t("pendingCorrection"))}
         ${this.metric(this.t("measurements"), String(session.sample_count || 0))}
         ${this.metric(this.t("baseline"), correction)}
       </div>
       ${session.candidate_end_at ? `<div class="bcm-note" style="margin-top:10px"><strong>${this.t("endpoint")}</strong><br>${fmtDate(session.candidate_end_at,this.language)} · ${esc(phaseLabel("confirming_end",this.language))}</div>` : ""}
-      ${renderSessionChart(session,"calibrating",this.language)}
+      ${renderSessionChart(session,energyReadings(session).idleKnown ? "calibrating" : "gross_calibration",this.language)}
       ${admin ? `<div class="bcm-actions"><button class="bcm-btn secondary" data-action="finish-calibration" ${this._busy ? "disabled" : ""}>${this.t("finishCalibration")}</button><button class="bcm-btn danger" data-action="stop" ${this._busy ? "disabled" : ""}>${this.t("stop")}</button></div><p class="bcm-muted">${this.t("manualFallback")}</p>` : ""}`;
   }
 
@@ -1470,9 +1549,9 @@ class BatteryChargeManagerPanel extends BcmBase {
   }
 
   parallelLive(session) {
-    const m = session.metering;
-    if (!m || !Object.keys(m).length) return "";
-    return `<details data-disclosure="parallel-live"><summary>${this.t("parallel")} · ${this.t(session.energy_source === "power" ? "powerSource" : "meterSource")}</summary><div class="bcm-metrics">${this.metric(this.t("meterSource"),`${fmt(m.meter_wh,3)} Wh`)}${this.metric(this.t("powerSource"),`${fmt(m.power_wh,3)} Wh`)}${this.metric(this.t("apparentSource"),`${fmt(m.apparent_valid ? m.apparent_vah : null,3)} VAh`)}</div>${m.power_valid === false ? `<p>${this.t("powerInvalid")}</p>` : ""}<p class="bcm-muted">${this.t("sourceHint")}</p></details>`;
+    const m = session.metering || {};
+    const values = energyReadings(session);
+    return `${this.energySourceHeader(session)}${values.counterNotAdvancing ? `<p class="bcm-note">${this.t("counterNoChange")}</p>` : ""}<details data-disclosure="parallel-live"><summary>${this.t("parallel")}</summary><div class="bcm-metrics">${this.energyMetric("gross", session)}${session.mode !== "idle_measuring" ? this.energyMetric("net", session) : ""}${values.status !== "integrationComplete" && values.acceptedGross !== null ? this.metric(this.t("acceptedEnergy"),`${fmt(values.acceptedGross,3)} Wh`) : ""}${this.metric(this.t("apparentSource"),`${fmt(m.apparent_valid ? m.apparent_vah : null,3)} VAh`)}</div><p class="bcm-muted">${this.t("sourceHint")}</p></details>`;
   }
 
   renderMeasurementDialog(admin) {
@@ -1501,7 +1580,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       ${stale ? `<div class="bcm-note">${this.t("staleDetail")} <button class="bcm-btn secondary" data-action="refresh-measurement">${this.t("refresh")}</button></div>` : ""}
       ${active ? `<p class="bcm-note">${this.t("activeSessionHint")}</p>` : ""}${decision}
       <section>${action === "approve" ? "" : this.revisionComparison(d)}${d.invalid_reason ? `<p>${this.t("decisionReason")}: ${esc(d.invalid_reason)}</p>` : ""}</section>
-      <section><div class="bcm-metrics">${metric("gross",`${fmt(d.gross_energy_wh)} Wh`)}${calibration ? `${metric("idleEnergy", d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_energy_wh)} Wh`)}${metric("net",d.idle_correction_status === "pending" ? this.t("pendingCorrection") : `${fmt(d.net_energy_wh)} Wh`)}${metric("baseline",d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_baseline_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.charge_duration_seconds))}${metric("peakPower",`${fmt(d.peak_power_w)} W`)}` : `${metric("measuredBaseline", d.below_detection_limit ? `&lt; ${fmt(d.upper_bound_power_w,3)} W` : `${fmt(d.median_power_w ?? d.average_power_w,3)} W`)}${metric("stdev",`${fmt(d.stdev_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.duration_seconds))}`}</div>${calibration ? `<p>${this.t("quantity")}: ${d.quantity} · ${this.t("portsUsed")}: ${esc((d.ports || []).join(" + "))}</p><p>${this.t("method")}: ${esc(this.t(`method_${d.end_method}`))} · ${this.t("analysisRevision")} ${d.analysis_revision || 1}</p>` : `<p>${this.t("measurementMode")}: ${this.t(d.mode === "automatic" ? "auto" : "fixed")} · ${this.t(d.reliable ? "reliable" : "unreliableLabel")}</p>`}${times.map(([label,value]) => `<div class="bcm-row"><span>${this.t(label)}</span><strong>${fmtDate(value,this.language)}</strong></div>`).join("")}</section>
+      <section><div class="bcm-metrics">${this.energyMetric("gross", d)}${calibration ? `${metric("idleEnergy", d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_energy_wh)} Wh`)}${this.energyMetric("net", d)}${metric("baseline",d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_baseline_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.charge_duration_seconds))}${metric("peakPower",`${fmt(d.peak_power_w)} W`)}` : `${metric("measuredBaseline", d.below_detection_limit ? `&lt; ${fmt(d.upper_bound_power_w,3)} W` : `${fmt(d.median_power_w ?? d.average_power_w,3)} W`)}${metric("stdev",`${fmt(d.stdev_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.duration_seconds))}`}</div>${calibration ? `<p>${this.t("quantity")}: ${d.quantity} · ${this.t("portsUsed")}: ${esc((d.ports || []).join(" + "))}</p><p>${this.t("method")}: ${esc(this.t(`method_${d.end_method}`))} · ${this.t("analysisRevision")} ${d.analysis_revision || 1}</p>` : `<p>${this.t("measurementMode")}: ${this.t(d.mode === "automatic" ? "auto" : "fixed")} · ${this.t(d.reliable ? "reliable" : "unreliableLabel")}</p>`}${times.map(([label,value]) => `<div class="bcm-row"><span>${this.t(label)}</span><strong>${fmtDate(value,this.language)}</strong></div>`).join("")}</section>
       ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${calibration ? `<h3>${this.t("recordedSource")}</h3>${this.meteringDecision(d.source_decision?.policy_version ? d.source_decision : {source:d.energy_source || "meter",reason:"legacy_meter"})}${d.effective_source_decision ? `<h3>${this.t("currentSource")}</h3>${this.meteringDecision(d.effective_source_decision)}` : ""}${this.meteringComparison(d.metering_comparison)}` : ""}${sourceLinks}
       ${calibration ? `<section><h3>${this.t("calibrationComment")}</h3>${admin ? `<textarea aria-label="${this.t("calibrationComment")}" data-comment-draft>${esc(this._commentDraft ?? d.comment ?? "")}</textarea><div class="bcm-actions"><button class="bcm-btn" data-action="save-comment" ${this._busy ? "disabled" : ""}>${this.t("saveComment")}</button></div>` : `<p style="white-space:pre-wrap">${esc(d.comment || "–")}</p>`}<details data-disclosure="comment-history"><summary>${this.t("commentHistory")}</summary>${(d.comment_history || []).map(item => `<div class="bcm-note"><strong>${fmtDate(item.changed_at,this.language)}</strong><p style="white-space:pre-wrap">${esc(item.comment || "–")}</p></div>`).join("")}</details></section>` : ""}
       <details data-disclosure="changes"><summary>${this.t("changes")}</summary>${this.revisionChanges(d)}</details>

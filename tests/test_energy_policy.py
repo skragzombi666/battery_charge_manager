@@ -27,7 +27,7 @@ class EnergyPolicyTests(unittest.TestCase):
     def test_good_power_can_replace_non_advancing_counter(self):
         report=self.report();report['meter_net_wh']=0;report['meter_step_wh']=None
         self.assertEqual(energy_policy.choose(report,'power')['source'],'power')
-        self.assertIsNone(energy_policy.choose(report,'auto')['source'])
+        self.assertEqual(energy_policy.choose(report,'auto')['source'],'power')
 
     def test_tail_requires_low_fresh_power_and_full_confirmation(self):
         start=datetime(2026,9,14,tzinfo=timezone.utc)
@@ -209,7 +209,7 @@ class EnergyModeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         record=self.manager.calibrations['0']
         record.metering_comparison.update(meter_net_wh=0, meter_step_wh=None)
         self.manager._select_calibration_energy(record,'auto')
-        self.assertEqual(record.net_energy_wh,0)
+        self.assertEqual(record.net_energy_wh,5.5)
         await self.manager.async_set_energy_mode('power')
         self.assertEqual(self.manager.calibration_summary('s','b',1)['median_net_energy_wh'],5.5)
         self.assertTrue(self.manager._measurement_row(record)['used'])

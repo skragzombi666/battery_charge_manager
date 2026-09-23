@@ -118,6 +118,10 @@ def compare(
     first, last = points[0], points[-1]
     span = _time(last.timestamp) - _time(reference_at or first.timestamp)
     meter_gross = last.meter_energy_wh if last.meter_energy_wh is not None else last.gross_energy_wh
+    report['meter_gross_wh'] = meter_gross
+    report['power_gross_wh'] = last.power_energy_wh
+    report['power_estimate_gross_wh'] = last.power_estimate_wh
+    report['idle_energy_wh'] = max(0, baseline * span / 3600)
     report['meter_net_wh'] = max(0, meter_gross - baseline * span / 3600)
     report['power_estimate_net_wh'] = max(0, last.power_estimate_wh - baseline * span / 3600) if last.power_estimate_wh is not None else None
     report['estimate_complete'] = bool(span > 0 and (last.metering_quality.get('estimate_covered_seconds') or 0) >= span * .99)

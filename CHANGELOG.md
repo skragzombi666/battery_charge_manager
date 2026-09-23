@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed startup zeros and single power spikes causing a permanently latched taper indication. Learn a sustained main-load reference, weight samples by elapsed time, require fresh coverage, and return to main charging after recovery.
+- Always show energy-meter and active-power-integration values in both gross and net tiles, including fixed-source modes. Distinguish missing values, pending idle correction, estimates and accepted partial integrals.
+- Replaced W/time terminology with Power integration / Leistungsintegration throughout the interface; separate source setting, pending automatic selection and actual operational source.
+- Added a visible no-counter-increment indication and a conservative automatic fallback to a complete, sufficiently resolved accepted integral when gross counter energy is zero. Fixed-source choices and positive-source disagreement checks remain enforced.
+- Fixed manual completion with usable integrated energy and zero counter delta. Keep manual confidence low and reject estimate-only results.
+- Retain source-specific gross totals at the calibration endpoint; energy safety checks include accepted integration and use source-matched references.
+- Preserve raw measurements, revision/validity history and existing safety checks. Added backend and frontend regression traces for the reported low-power charging scenario.
+- No new runtime dependencies. See docs/version-0.4.1.md for thresholds, limitations and update behaviour.
+
 ## 0.1.7
 
 - Replaced six peer navigation tabs with a charging home page, a grouped management area and clear return paths. Added the native Home Assistant sidebar icon control.

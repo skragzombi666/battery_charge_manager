@@ -1,5 +1,9 @@
 # Calibration method
 
+Current phase hints, dual-source displays and zero-counter fallback are described
+in [version 0.4.1](version-0.4.1.md). The source decision does not establish absolute
+accuracy, and phase hints are separate from charge-end confirmation.
+
 ## Measurand
 
 Battery Charge Manager does not directly measure electrochemical cell capacity or state of charge. It measures the mains-side energy consumed by a defined charging arrangement under a defined operating method.

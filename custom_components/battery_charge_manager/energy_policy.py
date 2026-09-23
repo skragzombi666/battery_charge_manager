@@ -19,6 +19,17 @@ def choose(report: dict, mode: str) -> dict:
         if good_power:
             result.update(source='power', reason='forced_power')
         return result
+    # No observed counter increment is not contradictory positive evidence.
+    # Automatic fallback still requires full fresh coverage and useful time
+    # resolution; held estimates never qualify. A forced meter stays forced.
+    meter_gross = report.get('meter_gross_wh', meter)
+    power_step = report.get('power_step_wh')
+    report_interval = report.get('max_report_interval_seconds', 0)
+    if (mode == 'auto' and finite(meter_gross) and meter_gross == 0
+            and good_power and finite(power_step) and power_step <= power * .05
+            and finite(report_interval) and report_interval <= MAX_GAP_SECONDS):
+        result.update(source='power', reason='counter_not_advancing')
+        return result
     # A fresh, complete disagreement or a strongly conflicting held estimate
     # excludes meter/automatic use. An explicit power choice may ignore the meter.
     step = report.get('meter_step_wh') or 0
