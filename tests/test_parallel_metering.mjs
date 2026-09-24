@@ -29,14 +29,14 @@ test('setup has optional voltage and RMS current selectors and blank values stay
 test('counter and W/time curves retain separate net values on the same energy scale',()=>{
  const chart_samples=[
   {timestamp:'2026-09-14T00:00:00Z',net_power_w:2,meter_energy_wh:0,power_energy_wh:0,power_integral_valid:true},
-  {timestamp:'2026-09-14T02:00:00Z',net_power_w:0,meter_energy_wh:6,gross_energy_wh:5.8,power_energy_wh:5.8,idle_energy_wh:.2,power_integral_valid:true},
+  {timestamp:'2026-09-14T02:00:00Z',chart_gap_before:false,net_power_w:0,meter_energy_wh:6,gross_energy_wh:5.8,power_energy_wh:5.8,idle_energy_wh:.2,power_integral_valid:true},
  ];
  const html=renderSessionChart({chart_samples},'calibrating','de');
  for(const series of ['power','energy','power-energy']) assert.match(html,new RegExp(`data-series="${series}"`));
  assert.match(html,/Energiezähler \(netto\) · max 5\.80 Wh/);
  assert.match(html,/Leistungsintegration · 5\.60 Wh/);
  assert.doesNotMatch(html,/stroke-dasharray/,'display thinning must not turn valid integration into uncertainty');
- const meterEnd=html.match(/data-series="energy"[^>]*points="[^"]* ([0-9.]+),([0-9.]+)"/);
+ const meterEnd=html.match(/class="bcm-chart-energy"[^>]*points="[^"]* ([0-9.]+),([0-9.]+)"/);
  const integratedEnd=html.match(/class="bcm-chart-power-energy"[^>]*points="[^"]* ([0-9.]+),([0-9.]+)"/);
  assert.equal(meterEnd[1], integratedEnd[1]);
  assert.ok(Number(meterEnd[2]) < Number(integratedEnd[2]),'larger counter total is higher on the shared Wh scale');

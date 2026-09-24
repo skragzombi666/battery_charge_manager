@@ -40,6 +40,8 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
         ws_get_measurement,
         ws_set_measurement_revision_approval,
         ws_reanalyze_calibration,
+        ws_set_calibration_endpoint,
+        ws_get_raw_samples,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -427,11 +429,11 @@ async def ws_set_measurement_validity(
         vol.Required("record_id"): str,
     }
 )
-@callback
-def ws_get_measurement(hass, connection, msg) -> None:
+@websocket_api.async_response
+async def ws_get_measurement(hass, connection, msg) -> None:
     """Read one historical trace without adding it to subscription messages."""
     try:
-        result = _manager(hass).measurement_details(msg["record_type"], msg["record_id"])
+        result = await _manager(hass).async_measurement_details(msg["record_type"], msg["record_id"])
     except HomeAssistantError as err:
         _send_error(connection, msg, err)
         return
@@ -522,3 +524,45 @@ async def ws_set_calibration_comment(hass, connection, msg) -> None:
         _send_error(connection, msg, err)
         return
     connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required('type'): f'{DOMAIN}/set_calibration_endpoint',
+    vol.Required('record_id'): str,
+    vol.Required('endpoint_at'): str,
+    vol.Required('reason'): str,
+    vol.Required('expected_analysis_revision'): vol.All(int, vol.Range(min=1)),
+})
+@websocket_api.async_response
+async def ws_set_calibration_endpoint(hass, connection, msg) -> None:
+    """Audited boundary revision; never approve an incomplete record implicitly."""
+    try:
+        await _manager(hass).async_set_calibration_endpoint(
+            msg['record_id'], msg['endpoint_at'], reason=msg['reason'],
+            expected_analysis_revision=msg['expected_analysis_revision'],
+            actor_id=connection.user.id)
+    except (HomeAssistantError, ValueError, TypeError) as err:
+        _send_error(connection,msg,err)
+        return
+    connection.send_result(msg['id'])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required('type'): f'{DOMAIN}/get_raw_samples',
+    vol.Required('record_type'): vol.In(['calibration','idle','session']),
+    vol.Required('record_id'): str,
+    vol.Optional('offset', default=0): vol.All(int,vol.Range(min=0)),
+    vol.Optional('limit', default=500): vol.All(int,vol.Range(min=1,max=1000)),
+})
+@websocket_api.async_response
+async def ws_get_raw_samples(hass,connection,msg) -> None:
+    """Page original observations without presenting a decimated chart as raw."""
+    try:
+        result = await _manager(hass).async_raw_measurement_page(
+            msg['record_type'],msg['record_id'],msg.get('offset',0),msg.get('limit',500))
+    except (HomeAssistantError,ValueError,TypeError) as err:
+        _send_error(connection,msg,err)
+        return
+    connection.send_result(msg['id'],result)

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .const import PHASE_MAIN_CHARGE, PHASE_TAPER
+from .analysis import recent_samples
 from .metering import MAX_GAP_SECONDS, finite
 
 MAIN_WINDOW_SECONDS = 300
@@ -24,6 +25,7 @@ def _window(samples: list, start: datetime, end: datetime) -> list[tuple[float, 
             continue
         if (not 0 < (right - left).total_seconds() <= MAX_GAP_SECONDS
                 or not previous.power_report_fresh or not current.power_report_fresh
+                or (current.interval_quality and current.interval_quality.get("accepted_seconds", 0) < (right-left).total_seconds()*.99)
                 or not finite(previous.net_power_w) or not finite(current.net_power_w)):
             continue
         seconds = (min(right, end) - max(left, start)).total_seconds()
@@ -59,18 +61,21 @@ def update(session: Any, now: datetime) -> None:
         state['version'] = TRACKING_VERSION
         session.taper_started_at = None
         if session.phase == PHASE_TAPER and not session.candidate_end_at:
-            session.phase = PHASE_MAIN_CHARGE
+            session.phase = "undetermined"
+    if not state.get("reference_power_w") and not session.candidate_end_at:
+        session.phase = "undetermined"
     started = datetime.fromisoformat(session.charge_started_at.replace('Z', '+00:00'))
     if (now - started).total_seconds() < MAIN_WINDOW_SECONDS:
         return
     start = now - timedelta(seconds=MAIN_WINDOW_SECONDS)
     # Do not include the off/initialization samples before detected charge start.
-    samples = [s for s in session.samples
-               if started <= datetime.fromisoformat(s.timestamp.replace('Z', '+00:00')) <= now]
+    samples = recent_samples(session.samples, max(start.timestamp(), started.timestamp()), now.timestamp())
     values = _window(samples, start, now)
     covered = sum(seconds for _, seconds in values)
     current = session.current_net_power_w
     if covered < MAIN_WINDOW_SECONDS * .99 or not finite(current):
+        if not session.candidate_end_at:
+            session.phase = "undetermined"
         return
     level = _median(values)
     stable = sum(seconds for power, seconds in values
@@ -80,7 +85,11 @@ def update(session: Any, now: datetime) -> None:
         reference = max(reference, level)
         state['reference_power_w'] = reference
     if reference < .5:
+        if not session.candidate_end_at:
+            session.phase = "undetermined"
         return
+    if not session.candidate_end_at:
+        session.phase = PHASE_TAPER if session.taper_started_at else PHASE_MAIN_CHARGE
     if session.taper_started_at:
         recovery = _window(samples, now - timedelta(seconds=RECOVERY_WINDOW_SECONDS), now)
         duration = sum(seconds for _, seconds in recovery)

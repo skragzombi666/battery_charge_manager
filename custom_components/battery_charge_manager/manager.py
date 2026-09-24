@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import logging
 import math
+import time
+import sqlite3
 from statistics import median, pstdev
 from typing import Any
 from uuid import uuid4
@@ -22,6 +24,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
+    async_track_state_report_event,
     async_track_time_interval,
 )
 from homeassistant.helpers.storage import Store
@@ -86,7 +89,7 @@ from .const import (
     STORAGE_VERSION,
     VERSION,
 )
-from . import metering, energy_policy, phase_tracking
+from . import metering, energy_policy, phase_tracking, observations, analysis
 from .models import (
     BatteryType,
     CalibrationRecord,
@@ -95,6 +98,7 @@ from .models import (
     IdleMeasurement,
     MeasurementSample,
 )
+from .persistence import ArchivePersistence, serialized_command
 from .history import (
     Measurement, chart_samples, current_approval, revision_differences, revision_status,
 )
@@ -102,7 +106,7 @@ from .history import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class BatteryChargeManager:
+class BatteryChargeManager(ArchivePersistence):
     """Manage setups, batteries, measurements, calibrations, and charging."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -136,6 +140,14 @@ class BatteryChargeManager:
         self._remove_switch_listener: Callable[[], None] | None = None
         self._remove_heartbeat: Callable[[], None] | None = None
         self._cancel_timeout: Callable[[], None] | None = None
+        self._remove_report_listener = None
+        self._observation_tasks = set()
+        self._pending_observations = []
+        self._receipt_sequence = 0
+        self.archive = None
+        self._archive_error = None
+        self._last_notification_at = float("-inf")
+        self._command_lock = asyncio.Lock()
         self._sample_lock = asyncio.Lock()
         self._commanding_switch = False
         self._finalizing = False
@@ -185,7 +197,7 @@ class BatteryChargeManager:
 
     async def async_load(self) -> None:
         """Load, migrate, and normalize persistent data."""
-        data = await self.store.async_load() or {}
+        data = await self._async_open_archive(await self.store.async_load() or {})
         raw_batteries = list(data.get("batteries", []))
         self.batteries = {
             item["battery_id"]: BatteryType.from_dict(item)
@@ -231,6 +243,8 @@ class BatteryChargeManager:
         )
 
         migrated = self._migrate_legacy_calibrations(raw_batteries)
+        migrated = self._recover_attempts() or migrated
+        await self._async_restore_session_trace()
         resumed_or_closed = False
         if self.session.active:
             await self._async_resume_session()
@@ -308,11 +322,7 @@ class BatteryChargeManager:
         """Resume an active session after Home Assistant restart."""
         setup = self.setups.get(self.session.setup_id or "")
         if setup is None:
-            self.session.mode = SESSION_IDLE
-            self.session.phase = PHASE_ERROR
-            self.session.valid = False
-            self.session.end_reason = "Charging setup missing after restart"
-            self.session.session_finished_at = self._now_iso()
+            await self._async_abort_session("Charging setup missing after restart")
             return
         switch_state = self.hass.states.get(setup.switch_entity)
         if switch_state is None or switch_state.state != "on":
@@ -332,26 +342,33 @@ class BatteryChargeManager:
         self._schedule_timeout()
         await self._async_sample("restart")
 
+    @serialized_command
     async def async_shutdown(self) -> None:
         """Detach listeners without changing the physical charge state."""
         self._stop_tracking()
+        if self._observation_tasks:
+            await asyncio.gather(*tuple(self._observation_tasks), return_exceptions=True)
         async with self._sample_lock:
             await self._async_save()
 
     def export_measurements(self) -> dict[str, Any]:
         """Return one independent snapshot of every retained measurement and its context."""
+        if self.archive:
+            raise HomeAssistantError('Use the full streamed archive export; the legacy WebSocket export cannot contain all archived raw data.')
         return deepcopy({
             "export_format": "battery_charge_manager.measurements",
-            "export_schema_version": 1,
+            "export_schema_version": 2,
             "exported_at": self._now_iso(),
             "integration_version": VERSION,
             "algorithm_version": ALGORITHM_VERSION,
             "data_schema_version": DATA_SCHEMA_VERSION,
-            "time_zone": getattr(self.hass.config, "time_zone", "UTC"),
+            "time_zone": getattr(getattr(self.hass, "config", None), "time_zone", "UTC"),
             "retention": {
                 "scope": "all_retained_data",
                 "trace_note": "Stored samples; earlier trace compaction cannot be reversed.",
-                "charge_history_limit": 100,
+                "charge_history_limit": None,
+                "automatic_deletion": False,
+                "raw_archive_required": bool(self.archive),
                 "charge_history_note": "Older entries may contain summaries only.",
             },
             "setups": [item.as_dict() for item in self.setups.values()],
@@ -371,6 +388,7 @@ class BatteryChargeManager:
                          "max_session_hours": self.max_session_hours, "energy_mode": self.energy_mode},
         })
 
+    @serialized_command
     async def async_set_calibration_comment(
         self, record_id: str, comment: str, *, expected_comment: str,
         actor_id: str | None = None,
@@ -388,35 +406,20 @@ class BatteryChargeManager:
         self._notify()
 
     async def _async_save(self) -> None:
-        """Persist all manager data."""
-        await self.store.async_save(
-            {
-                "schema_version": DATA_SCHEMA_VERSION,
-                "setups": [setup.as_dict() for setup in self.setups.values()],
-                "batteries": [battery.as_dict() for battery in self.batteries.values()],
-                "idle_measurements": [
-                    item.as_dict() for item in self.idle_measurements.values()
-                ],
-                "calibrations": [
-                    item.as_dict() for item in self.calibrations.values()
-                ],
-                "charge_history": self.charge_history[-100:],
-                "session": self.session.as_dict(),
-                "selected_setup_id": self.selected_setup_id,
-                "selected_battery_id": self.selected_battery_id,
-                "selected_quantity": self.selected_quantity,
-                "target_percent": self.target_percent,
-                "max_session_hours": self.max_session_hours,
-                "energy_mode": self.energy_mode,
-            }
-        )
+        """Persist metadata and every new observation, with no retention limit."""
+        await self._async_persist()
         self._last_saved_at = dt_util.utcnow()
 
     @callback
-    def _notify(self) -> None:
-        """Notify entities and frontend subscribers."""
+    def _notify(self, *, force: bool = True) -> None:
+        """Throttle presentation only; every raw receipt remains archived."""
+        now = time.monotonic()
+        if not force and now-self._last_notification_at < 1:
+            return
+        self._last_notification_at = now
         async_dispatcher_send(self.hass, self.signal)
 
+    @serialized_command
     async def async_add_or_update_setup(self, data: dict[str, Any]) -> ChargerSetup:
         """Create or update a versioned charging setup."""
         self._ensure_idle()
@@ -515,6 +518,7 @@ class BatteryChargeManager:
         self._notify()
         return setup
 
+    @serialized_command
     async def async_delete_setup(self, setup_id: str) -> None:
         """Delete a setup while retaining historical measurement snapshots."""
         self._ensure_idle()
@@ -526,6 +530,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_add_or_update_battery(self, data: dict[str, Any]) -> BatteryType:
         """Create or update a versioned battery type."""
         self._ensure_idle()
@@ -636,6 +641,7 @@ class BatteryChargeManager:
         self._notify()
         return battery
 
+    @serialized_command
     async def async_delete_battery(self, battery_id: str) -> None:
         """Delete a battery type while retaining historical snapshots."""
         self._ensure_idle()
@@ -645,6 +651,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_select_setup(self, setup_id: str) -> None:
         """Select active setup."""
         self._ensure_idle()
@@ -656,6 +663,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_select_battery(self, battery_id: str) -> None:
         """Select active battery."""
         self._ensure_idle()
@@ -665,6 +673,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_select_quantity(self, quantity: int) -> None:
         """Select a fixed first-N port quantity."""
         self._ensure_idle()
@@ -677,6 +686,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_set_target_percent(self, value: int) -> None:
         """Set relative target energy percentage."""
         self._ensure_idle()
@@ -687,6 +697,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_set_energy_mode(self, mode: str) -> None:
         """Change future source decisions without modifying an active session."""
         if mode not in energy_policy.MODES:
@@ -696,6 +707,9 @@ class BatteryChargeManager:
         self._notify()
 
     def _record_source_choice(self, record: CalibrationRecord) -> dict:
+        if record.calibration_eligible is False:
+            return {"mode": self.energy_mode, "source": None,
+                    "reason": record.completion_status if record.completion_status != "completed" else "incomplete_power_data"}
         if record.metering_comparison:
             return energy_policy.choose(record.metering_comparison, self.energy_mode)
         usable_meter = math.isfinite(record.net_energy_wh) and record.net_energy_wh > 0
@@ -725,6 +739,7 @@ class BatteryChargeManager:
         if choice["source"] is None:
             record.confidence = CONFIDENCE_LOW
 
+    @serialized_command
     async def async_set_max_session_hours(self, value: float) -> None:
         """Set global safety timeout."""
         value = float(value)
@@ -734,6 +749,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_set_measurement_validity(
         self, record_type: str, record_id: str, valid: bool, reason: str = "",
         *, actor_id: str | None = None,
@@ -751,7 +767,7 @@ class BatteryChargeManager:
         record.valid = bool(valid)
         record.invalid_reason = "" if valid else reason.strip()
         if valid:
-            self._reprocess_pending_calibrations(record.setup_id)
+            await self._async_correct_pending(record.setup_id)
         await self._async_save()
         self._notify()
 
@@ -781,6 +797,7 @@ class BatteryChargeManager:
             raise HomeAssistantError("The current revision changed; reopen the measurement")
         return setup, battery
 
+    @serialized_command
     async def async_set_measurement_revision_approval(
         self, record_type: str, record_id: str, approved: bool, reason: str,
         *, expected_setup_revision: int, expected_battery_revision: int | None = None,
@@ -811,7 +828,7 @@ class BatteryChargeManager:
                 "approved_at": self._now_iso(), "reason": reason.strip(),
                 "actor_id": actor_id, "revoked_at": None,
             })
-            self._reprocess_pending_calibrations(record.setup_id)
+            await self._async_correct_pending(record.setup_id)
         elif approval is not None:
             approval.update({"revoked_at": self._now_iso(),
                              "revoke_reason": reason.strip(), "revoked_by": actor_id})
@@ -820,6 +837,7 @@ class BatteryChargeManager:
         await self._async_save()
         self._notify()
 
+    @serialized_command
     async def async_reanalyze_calibration(
         self, record_id: str, *, expected_setup_revision: int,
         expected_battery_revision: int, actor_id: str | None = None,
@@ -833,14 +851,18 @@ class BatteryChargeManager:
         if not record.valid or revision_status(record, setup, battery) not in {"native", "approved"}:
             raise HomeAssistantError("A valid record approved for the current revision is required")
         idle = self.idle_summary(record.setup_id)
-        if not record.samples or not idle["usable"]:
-            raise HomeAssistantError("A stored trace and reliable current idle measurement are required")
-        self._apply_idle_correction(
-            record, baseline=float(idle["baseline_power_w"]),
-            measurement_ids=idle["measurement_ids"], quality=idle["quality"],
-        )
-        record.analysis_history[-1]["replaced_by"] = actor_id
-        await self._async_save()
+        await self._async_hydrate(record)
+        try:
+            if not record.samples or not idle["usable"]:
+                raise HomeAssistantError("A stored trace and reliable current idle measurement are required")
+            self._apply_idle_correction(
+                record, baseline=float(idle["baseline_power_w"]),
+                measurement_ids=idle["measurement_ids"], quality=idle["quality"])
+            record.analysis_history[-1]["replaced_by"] = actor_id
+            await self._async_save()
+        finally:
+            if self.archive:
+                record.samples = []
         self._notify()
 
     def _record_revision_status(self, record: Measurement) -> str:
@@ -903,7 +925,7 @@ class BatteryChargeManager:
             "revision_status": status, "used": used, "usage_reason": reason,
             "effective_source_decision": self._record_source_choice(record) if calibration else None,
             "can_approve": record.valid and status == "historical",
-            "has_trace": bool(record.samples), "sample_count": len(record.samples),
+            "has_trace": self._sample_count(record) > 0, "sample_count": self._sample_count(record),
         })
         return row
 
@@ -920,6 +942,13 @@ class BatteryChargeManager:
         detail["revision_differences"] = revision_differences(record, setup, battery)
         if isinstance(record, CalibrationRecord):
             idle = self.idle_summary(record.setup_id)
+            detail["analysis_summary"] = record.analysis_summary or analysis.energy_segments(
+                record.samples, record.charge_finished_at, record.idle_baseline_power_w,
+                record.battery_snapshot.get("nominal_energy_wh"), record.quantity,
+                record.switch_on_at or record.session_started_at)
+            detail["endpoint_editable"] = self._sample_count(record) > 0
+            detail["trace_start_at"] = record.samples[0].timestamp if record.samples else None
+            detail["trace_end_at"] = record.samples[-1].timestamp if record.samples else None
             detail["invalid_idle_reference_ids"] = self._invalid_idle_references(record)
             detail["can_reanalyze"] = bool(
                 record.valid and record.samples and idle["usable"]
@@ -944,6 +973,7 @@ class BatteryChargeManager:
             ]
         return deepcopy(detail)
 
+    @serialized_command
     async def async_start_charge(self) -> None:
         """Start a normal relative-energy charge."""
         self._ensure_idle()
@@ -969,6 +999,7 @@ class BatteryChargeManager:
                              "record_ids": list(summary.get("record_ids", []))},
         )
 
+    @serialized_command
     async def async_start_calibration(self, comment: str = "", *, actor_id: str | None = None) -> None:
         """Start automatic full-charge calibration with deferred correction."""
         self._ensure_idle()
@@ -986,6 +1017,7 @@ class BatteryChargeManager:
             comment_actor_id=actor_id,
         )
 
+    @serialized_command
     async def async_start_idle_measurement(
         self,
         *,
@@ -1021,9 +1053,10 @@ class BatteryChargeManager:
             auto_max_minutes=auto_max_minutes,
         )
 
+    @serialized_command
     async def async_reprocess_pending_calibrations(self, setup_id: str) -> int:
         """Apply a newly available reliable baseline to pending records."""
-        corrected = self._reprocess_pending_calibrations(setup_id)
+        corrected = await self._async_correct_pending(setup_id)
         if corrected:
             await self._async_save()
             self._notify()
@@ -1059,7 +1092,20 @@ class BatteryChargeManager:
             corrected += 1
         return corrected
 
-    def _apply_idle_correction(
+    def _apply_idle_correction(self, record: CalibrationRecord, *, baseline: float,
+                               measurement_ids: list[str], quality: str) -> None:
+        """Replace only derived analysis; never replace even the in-memory raw trace."""
+        raw = record.samples
+        try:
+            self._apply_idle_correction_values(record, baseline=baseline,
+                                               measurement_ids=measurement_ids, quality=quality)
+        finally:
+            record.samples = raw
+        record.analysis_summary = analysis.energy_segments(raw, record.charge_finished_at,
+            baseline, record.battery_snapshot.get("nominal_energy_wh"), record.quantity,
+            record.switch_on_at or record.session_started_at)
+
+    def _apply_idle_correction_values(
         self,
         record: CalibrationRecord,
         *,
@@ -1073,6 +1119,7 @@ class BatteryChargeManager:
                 "energy_source": record.energy_source,
                 "source_decision": deepcopy(record.source_decision),
                 "metering_comparison": deepcopy(record.metering_comparison),
+                "analysis_summary": deepcopy(record.analysis_summary),
                 "analysis_revision": record.analysis_revision,
                 "analyzed_at": record.last_analyzed_at,
                 "idle_correction_status": record.idle_correction_status,
@@ -1207,12 +1254,9 @@ class BatteryChargeManager:
         target = BatteryChargeManager._parse_dt(timestamp)
         if target is None:
             return None
-        found = None
-        for sample in samples:
-            parsed = BatteryChargeManager._parse_dt(sample.timestamp)
-            if parsed is not None and parsed <= target:
-                found = sample
-        return found
+        from bisect import bisect_right
+        index = bisect_right(samples, target.timestamp(), key=analysis.timestamp) - 1
+        return samples[index] if index >= 0 else None
 
     async def _async_begin_session(
         self,
@@ -1290,6 +1334,9 @@ class BatteryChargeManager:
             auto_min_minutes=auto_min_minutes,
             auto_max_minutes=auto_max_minutes,
         )
+        self.session.setup_snapshot = setup.snapshot()
+        self.session.battery_snapshot = battery.snapshot() if battery else {}
+        self.session.trace_id = f"session:{self.session.session_id}" if self.archive else None
         self.session.source_decision["diagnostic_sensors"] = self._diagnostic_sensors(setup)
         await self._async_save()
         self._start_tracking()
@@ -1307,28 +1354,25 @@ class BatteryChargeManager:
         )
         await self._async_sample("start")
 
+    @serialized_command
     async def async_finish_calibration(self) -> float:
-        """Manually finish and retain an active calibration."""
-        if self.session.mode != SESSION_CALIBRATING:
-            raise HomeAssistantError("No calibration session is active")
-        if self.session.net_energy_wh <= 0:
-            endpoint = self.session.last_significant_at or self.session.last_sample_at
-            report = metering.compare(
-                self.session.samples, endpoint, self.session.idle_baseline_power_w or 0,
-                self.session.switch_on_at or self.session.session_started_at)
-            choice = energy_policy.choose(report, self.session.source_decision.get("mode", "meter"))
-            if choice["source"] != "power":
-                raise HomeAssistantError("Calibration measured no usable net energy for the selected source")
-        record = await self._async_complete_calibration(
-            automatic=False, reason="Calibration manually completed"
-        )
-        return record.net_energy_wh
+        """Stop and retain even unusable runs; eligibility is a separate decision."""
+        async with self._sample_lock:
+            if not self.session.active and self.session.completion_record_id:
+                record = self.calibrations.get(self.session.completion_record_id)
+                return record.net_energy_wh if record else 0.0
+            if self.session.mode != SESSION_CALIBRATING:
+                raise HomeAssistantError("No calibration session is active")
+            record = await self._async_complete_calibration(
+                automatic=False, reason="Calibration manually completed")
+            return record.net_energy_wh
 
+    @serialized_command
     async def async_stop(self, reason: str = "Stopped by user") -> None:
-        """Abort an active session without treating it as a calibration."""
-        if not self.session.active:
-            return
-        await self._async_abort_session(reason)
+        """Stop safely, retaining the attempt regardless of its usability."""
+        async with self._sample_lock:
+            if self.session.active:
+                await self._async_abort_session(reason)
 
     async def _async_abort_session(self, reason: str) -> None:
         """Safely abort the current session and retain an audit summary."""
@@ -1336,13 +1380,13 @@ class BatteryChargeManager:
             return
         self._finalizing = True
         try:
-            setup = self.setups.get(self.session.setup_id or "")
-            switch_off_confirmed = True
+            setup = self._shutdown_setup()
+            switch_off_confirmed = False
             if setup:
                 switch_off_confirmed = await self._async_switch_off_checked(setup)
             self._stop_tracking()
             now = self._now_iso()
-            self.session.switch_off_at = now
+            self.session.switch_off_at = now if switch_off_confirmed else None
             self.session.session_finished_at = now
             self.session.phase = PHASE_ERROR
             self.session.valid = False
@@ -1359,6 +1403,10 @@ class BatteryChargeManager:
     def _electrical_value(self, entity_id: str | None, unit: str) -> float | None:
         """Read optional electrical diagnostics; never use them for charge control."""
         state = self.hass.states.get(entity_id) if entity_id else None
+        return self._electrical_state_value(state, unit)
+
+    @staticmethod
+    def _electrical_state_value(state, unit: str) -> float | None:
         if state is None:
             return None
         factor = {unit: 1.0, f"m{unit}": .001, f"k{unit}": 1000.0}.get(
@@ -1408,22 +1456,14 @@ class BatteryChargeManager:
         setup = self.setups.get(self.session.setup_id or "")
         if setup is None:
             return
+        entities = sorted({entity for entity in (
+            setup.energy_sensor, setup.power_sensor, setup.temperature_sensor,
+            setup.voltage_sensor, setup.current_sensor, setup.switch_entity,
+            *self.session.source_decision.get("diagnostic_sensors", [])) if entity})
         self._remove_energy_listener = async_track_state_change_event(
-            self.hass, [setup.energy_sensor], self._async_state_changed
-        )
-        if setup.power_sensor:
-            self._remove_power_listener = async_track_state_change_event(
-                self.hass, [setup.power_sensor], self._async_state_changed
-            )
-        if setup.temperature_sensor:
-            self._remove_temperature_listener = async_track_state_change_event(
-                self.hass,
-                [setup.temperature_sensor],
-                self._async_state_changed,
-            )
-        self._remove_switch_listener = async_track_state_change_event(
-            self.hass, [setup.switch_entity], self._async_switch_changed
-        )
+            self.hass, entities, self._async_state_changed)
+        self._remove_report_listener = async_track_state_report_event(
+            self.hass, entities, self._async_state_changed)
         self._remove_heartbeat = async_track_time_interval(
             self.hass,
             self._async_heartbeat,
@@ -1460,6 +1500,7 @@ class BatteryChargeManager:
             "_remove_temperature_listener",
             "_remove_switch_listener",
             "_remove_heartbeat",
+            "_remove_report_listener",
             "_cancel_timeout",
         ):
             remove = getattr(self, attr)
@@ -1469,44 +1510,65 @@ class BatteryChargeManager:
 
     async def _async_timeout(self, _now: Any) -> None:
         """Handle hard session timeout."""
-        await self._async_abort_session("Maximum session duration reached")
+        await self.async_stop("Maximum session duration reached")
 
     async def _async_heartbeat(self, _now: datetime) -> None:
         """Record plateau periods even when sensors do not change."""
         await self._async_sample("heartbeat")
 
-    async def _async_state_changed(self, _event: Event) -> None:
-        """Record an energy or power sensor change."""
-        await self._async_sample("state_change")
+    def _capture_observation(self, source: str, event=None) -> dict | None:
+        setup = self.setups.get(self.session.setup_id or "")
+        if setup is None:
+            return None
+        self._receipt_sequence += 1
+        return observations.capture(self.hass, setup, self.session, dt_util.utcnow(), source, event,
+                                    sequence=self._receipt_sequence,
+                                    command_in_progress=self._commanding_switch or self._finalizing)
 
-    async def _async_switch_changed(self, event: Event) -> None:
-        """Detect external switch changes and unavailable hardware."""
-        if not self.session.active or self._commanding_switch or self._finalizing:
-            return
-        new_state: State | None = event.data.get("new_state")
-        if new_state is None or new_state.state in {"unknown", "unavailable"}:
-            await self._async_abort_session("Charging switch became unavailable")
-            return
-        if new_state.state == "off":
-            await self._async_abort_session("Charging switch was turned off externally")
+    @callback
+    def _async_state_changed(self, event: Event):
+        """Capture immutable values NOW, before any asynchronously queued work."""
+        captured = self._capture_observation("state_change", event)
+        task = asyncio.create_task(self._async_sample("state_change", captured))
+        self._observation_tasks.add(task)
+        def finished(done):
+            self._observation_tasks.discard(done)
+            if not done.cancelled() and (error := done.exception()) is not None:
+                _LOGGER.error("Observation processing failed; retained data are not purged: %s", error)
+        task.add_done_callback(finished)
+        return task
 
-    async def _async_sample(self, source: str) -> None:
-        """Read all configured signals, update trace, and evaluate the session."""
-        if not self.session.active or self._finalizing:
-            return
+    @callback
+    def _async_switch_changed(self, event: Event):
+        return self._async_state_changed(event)
+
+    async def _async_sample(self, source: str, captured: dict | None = None) -> None:
+        """Process a captured receipt in order; a cached read is not a new report."""
+        captured = captured or self._capture_observation(source)
         async with self._sample_lock:
-            if not self.session.active or self._finalizing:
+            if captured is not None and self.archive and captured.get("session_id"):
+                self._pending_observations.append(captured)
+                try:
+                    await self._io(self.archive.append_event, captured["trace_id"], captured)
+                except (OSError, ValueError, sqlite3.Error) as err:
+                    await self._async_archive_failure(err)
+                    raise HomeAssistantError("Raw observation could not be saved. Check storage.") from err
+                self._pending_observations.remove(captured)
+            if (not self.session.active or self._finalizing
+                    or (captured and (captured.get("session_id") != self.session.session_id
+                                     or captured.get("command_in_progress")))):
                 return
+            read_state = (lambda entity: observations.state_value(captured["states"].get(entity))) if captured else self.hass.states.get
             setup = self.setups.get(self.session.setup_id or "")
             if setup is None:
                 await self._async_abort_session("Charging setup no longer exists")
                 return
-            energy_state = self.hass.states.get(setup.energy_sensor)
+            energy_state = read_state(setup.energy_sensor)
             raw_energy = self._energy_state_to_wh(energy_state)
             if raw_energy is None:
                 await self._async_abort_session("Energy sensor became unavailable or invalid")
                 return
-            switch_state = self.hass.states.get(setup.switch_entity)
+            switch_state = read_state(setup.switch_entity)
             if switch_state is None or switch_state.state in {"unknown", "unavailable"}:
                 await self._async_abort_session("Charging switch became unavailable")
                 return
@@ -1514,7 +1576,7 @@ class BatteryChargeManager:
                 await self._async_abort_session("Charging switch is not on")
                 return
             power_w = self._power_state_to_w(
-                self.hass.states.get(setup.power_sensor)
+                read_state(setup.power_sensor)
                 if setup.power_sensor
                 else None
             )
@@ -1524,7 +1586,7 @@ class BatteryChargeManager:
                 )
                 return
             temperature_c = self._temperature_state_to_c(
-                self.hass.states.get(setup.temperature_sensor)
+                read_state(setup.temperature_sensor)
                 if setup.temperature_sensor
                 else None
             )
@@ -1533,7 +1595,7 @@ class BatteryChargeManager:
                     "Configured temperature sensor became unavailable or invalid"
                 )
                 return
-            now = dt_util.utcnow()
+            now = observations.parse_time(captured["received_at"]) if captured else dt_util.utcnow()
             now_iso = now.isoformat()
             previous_raw = self.session.last_raw_energy_wh
             if previous_raw is None:
@@ -1546,13 +1608,13 @@ class BatteryChargeManager:
             voltage_id, current_id = self.session.source_decision.get(
                 "diagnostic_sensors", (setup.voltage_sensor, setup.current_sensor)
             )
-            voltage_v = self._electrical_value(voltage_id, "V")
-            current_a = self._electrical_value(current_id, "A")
-            power_state = self.hass.states.get(setup.power_sensor) if setup.power_sensor else None
+            voltage_v = self._electrical_state_value(read_state(voltage_id), "V")
+            current_a = self._electrical_state_value(read_state(current_id), "A")
+            power_state = read_state(setup.power_sensor) if setup.power_sensor else None
             reported_at = (getattr(power_state, "last_reported", None)
                            or getattr(power_state, "last_updated", None))
             fresh = bool(power_state is not None and (
-                reported_at is None or 0 <= (now - reported_at).total_seconds()
+                reported_at is not None and 0 <= (now - reported_at).total_seconds()
                 <= metering.MAX_REPORT_AGE_SECONDS
             ))
             if (self.session.energy_source == "power"
@@ -1616,6 +1678,8 @@ class BatteryChargeManager:
                 )
             sample = MeasurementSample(
                 timestamp=now_iso,
+                provenance=captured or {},
+                interval_quality=deepcopy(self.session.metering.get("last_interval", {})),
                 meter_energy_wh=self.session.metering.get("meter_wh"),
                 power_estimate_wh=self.session.metering.get("power_estimate_wh") if setup.power_sensor else None,
                 power_energy_wh=self.session.metering.get("power_wh") if setup.power_sensor else None,
@@ -1639,6 +1703,7 @@ class BatteryChargeManager:
             )
             self._append_sample(sample, source)
             self.session.last_sample_at = now_iso
+            await self._async_sync_sample_archive()
             if power_w is not None and power_w > setup.max_power_w:
                 await self._async_abort_session(
                     f"Measured power {power_w:.1f} W exceeded setup limit"
@@ -1658,14 +1723,14 @@ class BatteryChargeManager:
                 return
             # Evaluate every event, but checkpoint growing traces at most once
             # per heartbeat. Starts, stops, edits and shutdown save immediately.
-            if (
+            if not self.archive and (
                 source in {"start", "restart"}
                 or self._last_saved_at is None
                 or (now - self._last_saved_at).total_seconds()
                 >= DEFAULT_HEARTBEAT_SECONDS
             ):
                 await self._async_save()
-            self._notify()
+            self._notify(force=False)
 
     async def _async_evaluate_session(self, now: datetime) -> bool:
         """Evaluate mode-specific start, target, reliability, and end conditions."""
@@ -1696,7 +1761,7 @@ class BatteryChargeManager:
             if self._detect_calibration_end(now):
                 await self._async_complete_calibration(
                     automatic=True,
-                    reason="Full charge automatically detected",
+                    reason="Low-input charge endpoint automatically confirmed",
                 )
                 return True
         return False
@@ -1756,7 +1821,7 @@ class BatteryChargeManager:
             self.session.charge_started_at = first
             self.session.last_significant_at = first
             self.session.last_significant_net_energy_wh = 0.0
-            self.session.phase = PHASE_MAIN_CHARGE
+            self.session.phase = "undetermined"
 
     def _update_significant_and_taper(self, now: datetime) -> None:
         """Track relevant charging and the onset of the taper phase."""
@@ -1813,10 +1878,21 @@ class BatteryChargeManager:
                 and self._require_session_setup().power_sensor):
             if max(self.session.net_energy_wh, self.session.metering.get("power_wh", 0)) < .1:
                 return False
-            endpoint, confirmed = energy_policy.power_endpoint(
-                self.session.samples, self.session.idle_baseline_power_w or 0,
-                max(.12, (self.session.peak_net_power_w or 0) * .05),
-                DEFAULT_END_CONFIRM_MINUTES * 60)
+            reference = self.session.phase_tracking.get("reference_power_w")
+            if reference is not None:
+                evidence = analysis.regime_transition(self.session.samples, reference,
+                    self.session.idle_baseline_power_w or 0, self.session.end_evidence)
+                self.session.end_evidence = evidence
+                endpoint = self._sample_at_or_before(evidence["candidate_at"]) if evidence.get("candidate_at") else None
+                confirmed = evidence["confirmed"]
+            else:
+                endpoint, confirmed = energy_policy.power_endpoint(
+                    self.session.samples, self.session.idle_baseline_power_w or 0,
+                    max(.12, (self.session.peak_net_power_w or 0) * .05),
+                    DEFAULT_END_CONFIRM_MINUTES * 60)
+                self.session.end_evidence = {"method": "observed_low_power", "confirmed": confirmed,
+                    "candidate_at": endpoint.timestamp if endpoint else None,
+                    "reason": "no_main_reference_strict_low_power_only"}
             if endpoint is None:
                 self._reset_end_candidate()
                 return False
@@ -1894,7 +1970,7 @@ class BatteryChargeManager:
         if self.session.taper_started_at:
             self.session.phase = PHASE_TAPER
         elif self.session.charge_started_at:
-            self.session.phase = PHASE_MAIN_CHARGE
+            self.session.phase = PHASE_MAIN_CHARGE if self.session.phase_tracking.get("reference_power_w") else "undetermined"
 
     def _calibration_exceeds_safety_limit(self) -> bool:
         """Stop grossly implausible calibration energy."""
@@ -1913,7 +1989,7 @@ class BatteryChargeManager:
         # The cumulative counter can stall while real energy is still delivered.
         # Accepted integration can only tighten this stop, never relax a limit.
         integrated = max(0.0, self.session.metering.get("power_wh", 0.0)
-                         - self.session.idle_energy_wh)
+                         - (self.session.idle_baseline_power_w or 0) * self.session.metering.get("covered_seconds", 0) / 3600)
         return max(self.session.net_energy_wh, integrated) > limit
 
     async def _async_complete_normal_charge(self, reason: str) -> None:
@@ -1955,7 +2031,14 @@ class BatteryChargeManager:
             raise HomeAssistantError("Session is already being finalized")
         self._finalizing = True
         try:
-            setup = self._require_session_setup()
+            setup = self._shutdown_setup()
+            switch_off_confirmed = await self._async_switch_off_checked(setup) if setup else False
+            self._stop_tracking()
+            switch_off_at = self._now_iso()
+            self.session.switch_off_at = switch_off_at if switch_off_confirmed else None
+            self.session.session_finished_at = switch_off_at
+            if setup is None:
+                raise HomeAssistantError("Charging setup missing; switch-off could not be confirmed")
             battery = self.batteries.get(self.session.battery_id or "")
             if battery is None:
                 raise HomeAssistantError("Battery type no longer exists")
@@ -1982,8 +2065,7 @@ class BatteryChargeManager:
                 )
             else:
                 endpoint_at = (
-                    self.session.last_significant_at
-                    or self.session.last_sample_at
+                    self.session.last_sample_at
                     or detected_at
                 )
                 endpoint_sample = self._sample_at_or_before(endpoint_at)
@@ -2001,11 +2083,6 @@ class BatteryChargeManager:
                 confidence = CONFIDENCE_LOW
             self.session.charge_finished_at = endpoint_at
             self.session.end_detected_at = detected_at
-            switch_off_confirmed = await self._async_switch_off_checked(setup)
-            self._stop_tracking()
-            switch_off_at = self._now_iso()
-            self.session.switch_off_at = switch_off_at
-            self.session.session_finished_at = switch_off_at
             session_duration = self._seconds_between(
                 self.session.session_started_at, switch_off_at
             )
@@ -2020,6 +2097,7 @@ class BatteryChargeManager:
             ) / 3600.0
             record = CalibrationRecord(
                 calibration_id=uuid4().hex,
+                origin_session_id=self.session.session_id,
                 comment=self.session.comment,
                 comment_history=deepcopy(self.session.comment_history),
                 setup_id=setup.setup_id,
@@ -2073,6 +2151,8 @@ class BatteryChargeManager:
                 ),
                 manual_override=not automatic,
                 algorithm_version=ALGORITHM_VERSION,
+                trace_id=self.session.trace_id,
+                archived_sample_count=self.session.archived_sample_count,
                 samples=list(self.session.samples),
             )
             record.metering_comparison = metering.compare(
@@ -2080,11 +2160,20 @@ class BatteryChargeManager:
                 record.switch_on_at or record.session_started_at)
             self._select_calibration_energy(record, self.session.source_decision.get("mode", "meter"))
             if automatic and self.session.source_decision.get("end_policy") == "observed_power" and setup.power_sensor:
-                record.end_method = "observed_low_power"
+                record.end_method = self.session.end_evidence.get("method", "observed_low_power")
             if record.source_decision.get("usable"):
                 self.session.energy_source = record.energy_source
                 self.session.gross_energy_wh = record.gross_energy_wh
                 self.session.net_energy_wh = record.net_energy_wh
+            record.calibration_eligible = bool(record.source_decision.get("usable") and switch_off_confirmed)
+            record.completion_status = ("completed" if record.calibration_eligible else
+                                        "automatic_unusable" if automatic else "manual_unusable")
+            record.analysis_summary = analysis.energy_segments(record.samples, record.charge_finished_at,
+                record.idle_baseline_power_w, record.battery_snapshot.get("nominal_energy_wh"),
+                record.quantity, record.switch_on_at or record.session_started_at)
+            record.analysis_summary["endpoint_evidence"] = (deepcopy(self.session.end_evidence) if automatic else
+                {"method": "manual", "confirmed": False, "reason": reason})
+            self.session.completion_record_id = record.calibration_id
             self.session.source_decision["calibration_choice"] = deepcopy(record.source_decision)
             self.calibrations[record.calibration_id] = record
             self.session.phase = (
@@ -2102,6 +2191,19 @@ class BatteryChargeManager:
             await self._async_save()
             self._notify()
             return record
+        except Exception as err:
+            # Analysis/metadata errors are not a reason to leave charging active.
+            # Keep the trace in memory as well if persistence itself is failing.
+            if self.session.active:
+                self.session.valid = False
+                self.session.phase = PHASE_ERROR
+                self.session.end_reason = f"Stopped; calibration analysis failed: {err}"
+                self._append_charge_history(valid=False, reason=self.session.end_reason)
+                self.session.mode = SESSION_IDLE
+                if not self._archive_error:
+                    await self._async_save()
+                self._notify()
+            raise
         finally:
             self._finalizing = False
 
@@ -2133,6 +2235,8 @@ class BatteryChargeManager:
                 duration_seconds=duration,
                 gross_energy_wh=self.session.gross_energy_wh,
                 average_power_w=float(assessment["average_power_w"]),
+                baseline_method=assessment.get("baseline_method", "energy_over_time"),
+                baseline_coverage_percent=assessment.get("baseline_coverage_percent"),
                 median_power_w=assessment.get("median_power_w"),
                 stdev_power_w=assessment.get("stdev_power_w"),
                 resolution_wh=assessment.get("resolution_wh"),
@@ -2147,11 +2251,13 @@ class BatteryChargeManager:
                 end_reason=reason,
                 invalid_reason=("Smart plug OFF state was not confirmed" if not switch_off_confirmed else ""),
                 algorithm_version=ALGORITHM_VERSION,
+                trace_id=self.session.trace_id,
+                archived_sample_count=self.session.archived_sample_count,
                 samples=list(self.session.samples),
             )
             self.idle_measurements[record.measurement_id] = record
             if record.valid and record.reliable:
-                self._reprocess_pending_calibrations(setup.setup_id)
+                await self._async_correct_pending(setup.setup_id)
             self.session.switch_off_at = switch_off_at
             self.session.session_finished_at = switch_off_at
             self.session.phase = (
@@ -2172,6 +2278,11 @@ class BatteryChargeManager:
     def _assess_idle_trace(self) -> dict[str, Any]:
         """Assess precision, stability, and reliability of the active idle trace."""
         samples = self.session.samples
+        setup = self.setups.get(self.session.setup_id or "")
+        if setup and setup.power_sensor and samples:
+            start, end = self._parse_dt(self.session.switch_on_at), self._parse_dt(self.session.last_sample_at)
+            if start is not None and end is not None:
+                return analysis.idle_assessment(samples, start.timestamp(), end.timestamp())
         duration = self._seconds_between(
             self.session.switch_on_at,
             self.session.last_sample_at,
@@ -2373,8 +2484,7 @@ class BatteryChargeManager:
         eligible_trusted = [item for item in eligible if item in trusted]
         excluded_low_confidence = len(eligible) - len(eligible_trusted) if eligible_trusted else 0
         eligible = eligible_trusted or eligible
-        source = (choices[eligible[-1].calibration_id]["source"] if eligible else
-                  "power" if self.energy_mode == "power" else "meter")
+        source = choices[eligible[-1].calibration_id]["source"] if eligible else None
         used = [item for item in eligible if choices[item.calibration_id]["source"] == source]
         decision = {"source": source, "mode": self.energy_mode,
                     "reason": choices[used[-1].calibration_id]["reason"] if used else "no_usable_source",
@@ -2541,18 +2651,13 @@ class BatteryChargeManager:
             self.session.idle_baseline_power_w or 0,
             self.session.switch_on_at or self.session.session_started_at)
 
-        chart_limit = 240
-        raw_chart_samples = self.session.samples
-        if len(raw_chart_samples) <= chart_limit:
-            chart_samples = raw_chart_samples
-        else:
-            last_index = len(raw_chart_samples) - 1
-            indices = [
-                round(index * last_index / (chart_limit - 1))
-                for index in range(chart_limit)
-            ]
-            chart_samples = [raw_chart_samples[index] for index in indices]
-        session["chart_samples"] = [sample.as_dict() for sample in chart_samples]
+        session['chart_samples'] = chart_samples(self.session.samples, limit=240)
+        session['analysis_summary'] = analysis.energy_segments(
+            self.session.samples, self.session.charge_finished_at or self.session.candidate_end_at,
+            self.session.idle_baseline_power_w,
+            self.session.battery_snapshot.get('nominal_energy_wh'), self.session.quantity,
+            self.session.switch_on_at or self.session.session_started_at)
+        session['analysis_summary']['endpoint_evidence'] = deepcopy(self.session.end_evidence)
         session["idle_live_assessment"] = (
             self._assess_idle_trace()
             if self.session.mode == SESSION_IDLE_MEASURING
@@ -2565,6 +2670,8 @@ class BatteryChargeManager:
         return {
             "version": VERSION,
             "entry_id": self.entry.entry_id,
+            "archive_available": bool(self.archive),
+            "storage_error": self._archive_error,
             "selected_setup_id": self.selected_setup_id,
             "selected_battery_id": self.selected_battery_id,
             "selected_quantity": self.selected_quantity,
@@ -2602,6 +2709,8 @@ class BatteryChargeManager:
 
     def _append_charge_history(self, *, valid: bool, reason: str) -> None:
         """Retain compact normal/aborted session audit information."""
+        if self.session.session_id and any(item.get("session_id") == self.session.session_id for item in self.charge_history):
+            return
         self.charge_history.append(
             {
                 "session_id": self.session.session_id,
@@ -2623,12 +2732,14 @@ class BatteryChargeManager:
                 "finished_at": self.session.session_finished_at or self._now_iso(),
                 "valid": valid,
                 "reason": reason,
-                "session": deepcopy(self.session.as_dict()),
-                "setup_snapshot": self.setups[self.session.setup_id].snapshot() if self.session.setup_id in self.setups else None,
-                "battery_snapshot": self.batteries[self.session.battery_id].snapshot() if self.session.battery_id in self.batteries else None,
+                "session": deepcopy(self.session.as_dict(include_samples=not bool(self.archive))),
+                "setup_snapshot": self.setups[self.session.setup_id].snapshot() if self.session.setup_id in self.setups else deepcopy(self.session.setup_snapshot),
+                "battery_snapshot": self.batteries[self.session.battery_id].snapshot() if self.session.battery_id in self.batteries else deepcopy(self.session.battery_snapshot),
             }
         )
-        self.charge_history = self.charge_history[-100:]
+        record = self._recover_attempt(self.charge_history[-1])
+        if record:
+            self.session.completion_record_id = record.calibration_id
 
     async def _async_switch_on_checked(self, setup: ChargerSetup) -> None:
         """Turn on and verify the configured smart plug."""
@@ -2710,27 +2821,8 @@ class BatteryChargeManager:
             await asyncio.sleep(0.25)
 
     def _append_sample(self, sample: MeasurementSample, source: str) -> None:
-        """Append trace sample while suppressing event bursts and limiting storage."""
-        samples = self.session.samples
-        if samples:
-            previous = samples[-1]
-            seconds = self._seconds_between(previous.timestamp, sample.timestamp)
-            materially_changed = (
-                abs(sample.gross_energy_wh - previous.gross_energy_wh) >= 0.0001
-                or (
-                    sample.power_w is not None
-                    and previous.power_w is not None
-                    and abs(sample.power_w - previous.power_w) >= 0.02
-                )
-                or sample.switch_state != previous.switch_state
-            )
-            if source == "state_change" and seconds < 2 and not materially_changed:
-                return
-        samples.append(sample)
-        if len(samples) > 1600:
-            self.session.samples = samples[::2]
-            if self.session.samples[-1].timestamp != sample.timestamp:
-                self.session.samples.append(sample)
+        """Keep every captured observation; chart reduction is never retention."""
+        self.session.samples.append(sample)
 
     def _estimate_synchrony(self, charge_duration: float | None) -> str:
         """Return an explicitly indicative multi-battery synchrony assessment."""
@@ -2751,25 +2843,13 @@ class BatteryChargeManager:
         return "indicatively_spread"
 
     def _samples_since(self, start: datetime) -> list[MeasurementSample]:
-        """Return samples at or after a UTC timestamp."""
-        result = []
-        for sample in self.session.samples:
-            parsed = self._parse_dt(sample.timestamp)
-            if parsed and parsed >= start:
-                result.append(sample)
-        return result
+        """Read a recent ordered suffix without scanning all retained observations."""
+        from bisect import bisect_left
+        index = bisect_left(self.session.samples, start.timestamp(), key=analysis.timestamp)
+        return self.session.samples[index:]
 
     def _sample_at_or_before(self, timestamp: str) -> MeasurementSample | None:
-        """Return the last sample at or before a timestamp."""
-        target = self._parse_dt(timestamp)
-        if target is None:
-            return None
-        found = None
-        for sample in self.session.samples:
-            parsed = self._parse_dt(sample.timestamp)
-            if parsed and parsed <= target:
-                found = sample
-        return found
+        return self._record_sample_at_or_before(self.session.samples, timestamp)
 
     def _interval_power_values(
         self, samples: list[MeasurementSample]
@@ -2977,6 +3057,8 @@ class BatteryChargeManager:
                 )
 
     def _ensure_idle(self) -> None:
+        if self._archive_error:
+            raise HomeAssistantError("Raw archive unavailable. Check storage before starting a new operation.")
         """Require no active measurement or charge."""
         if self.session.active:
             raise HomeAssistantError("A charge or measurement session is already active")

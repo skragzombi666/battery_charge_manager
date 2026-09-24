@@ -38,7 +38,7 @@ def _install_stubs() -> None:
         "homeassistant.components.persistent_notification"
     )
 
-    async def async_create(*_args, **_kwargs):
+    def async_create(*_args, **_kwargs):
         return None
 
     persistent_notification.async_create = async_create
@@ -81,6 +81,8 @@ def _install_stubs() -> None:
         def __init__(self, state: str, attributes=None):
             self.state = state
             self.attributes = attributes or {}
+            self.last_reported = datetime.now(timezone.utc)
+            self.last_updated = self.last_reported
 
     class Event:
         def __init__(self, data=None):
@@ -109,6 +111,7 @@ def _install_stubs() -> None:
     event = _module("homeassistant.helpers.event")
     event.async_call_later = lambda *_args, **_kwargs: lambda: None
     event.async_track_state_change_event = lambda *_args, **_kwargs: lambda: None
+    event.async_track_state_report_event = lambda *_args, **_kwargs: lambda: None
     event.async_track_time_interval = lambda *_args, **_kwargs: lambda: None
     storage = _module("homeassistant.helpers.storage")
 
@@ -405,10 +408,11 @@ class ManagerStatisticsTests(unittest.TestCase):
                 timestamp=(start + timedelta(minutes=minute)).isoformat(),
                 raw_energy_wh=1000 + 0.0035 * minute,
                 gross_energy_wh=0.0035 * minute,
+                power_report_fresh=True,
                 power_w=0.20 + (0.002 if minute % 2 else -0.002),
                 switch_state="on",
             )
-            for minute in range(0, 66, 5)
+            for minute in range(0, 66)
         ]
         assessment = self.manager._assess_idle_trace()
         self.assertTrue(assessment["reliable"])
