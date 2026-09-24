@@ -1,20 +1,64 @@
-name: 0.4.2 source workspace
+name: Verify exact 0.4.2 candidate
 on:
   push:
     branches: [maintenance/v0.4.2-build]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  workspace:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Package original base with Git history
-        run: git bundle create source.bundle --all
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: source-042
-          path: source.bundle
-          retention-days: 2
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Apply exact verified source on original main
+        shell: bash
+        run: |
+          cat .release042/part.{0,1,2,3,4} | base64 --decode > /tmp/candidate.patch.xz
+          echo '9e500577ceec75f92754f9ecba1a9e90eab7d79cd759a952ecfd6ebdb576cab1  /tmp/candidate.patch.xz' | sha256sum --check
+          xz --decompress --stdout /tmp/candidate.patch.xz > /tmp/candidate.patch
+          echo '24c53823be2660b11b7bd5e5c074c40e080d357675ba9e0744f8e50507398611  /tmp/candidate.patch' | sha256sum --check
+          git checkout --detach 044aef5bfa9211296ed204e3c4f776442e78de37
+          git apply --unidiff-zero --index /tmp/candidate.patch
+          test "$(git write-tree)" = fe0934b32f276d9ddc127c16450d246e47d49584
+          git diff --cached --check
+      - name: Install HTTP test dependency
+        run: python -m pip install aiohttp==3.13.3
+      - name: Backend regression suite
+        run: python -m unittest discover -s tests -v
+      - name: Frontend regression suite
+        run: node --test tests/*.mjs
+      - name: Syntax and metadata
+        shell: bash
+        run: |
+          python -m compileall -q custom_components tests
+          node --check custom_components/battery_charge_manager/frontend/battery-charge-manager.js
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in Path('.').glob('**/*.json'):
+              json.loads(path.read_text())
+          assert json.loads(Path('custom_components/battery_charge_manager/manifest.json').read_text())['version'] == '0.4.2'
+          PY
+      - name: Home Assistant integration validation
+        uses: home-assistant/actions/hassfest@master
+      - name: Publish verified candidate branch only
+        shell: bash
+        run: |
+          git diff --quiet
+          test "$(git write-tree)" = fe0934b32f276d9ddc127c16450d246e47d49584
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'v0.4.2: retain all observations and separate completion from calibration approval' -m 'Add transactional immutable raw archives, idempotent legacy migration and visible excluded attempts. Capture original reports, assess interval quality, separate charging and post-end input, support pulsed low-input confirmation and audited boundaries. Stream complete authenticated exports; preserve protections and nominal-energy distinctions.'
+          git push origin HEAD:refs/heads/maintenance/v0.4.2-verified
+          echo "VERIFIED_COMMIT=$(git rev-parse HEAD)"
+          echo "VERIFIED_TREE=$(git rev-parse HEAD^{tree})"
+          echo "Candidate commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Verification: Python, JavaScript, metadata and hassfest successful.' >> "$GITHUB_STEP_SUMMARY"
