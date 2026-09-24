@@ -1,5 +1,14 @@
 # Battery Charge Manager
 
+## Version 0.4.2: retained measurements and reliable completion
+
+All raw observations and operations are now retained in an append-only SQLite
+archive. Stopped/incomplete attempts remain visible, and manual finish no longer
+requires valid calibration energy before switching off. Both energy paths,
+charge/post-end intervals and nominal-energy context remain explicitly distinct.
+See [the release notes and migration/downgrade instructions](docs/version-0.4.2.md).
+
+
 Battery Charge Manager is a Home Assistant custom integration for repeatable, energy-based charging of removable batteries through a metered smart plug.
 
 It is designed for batteries with their own charging electronics, such as USB-C rechargeable AA/AAA batteries connected to a USB power supply. The integration measures the complete charging arrangement at the mains side, learns full-charge energy profiles, and switches the charger off after a selected share of the calibrated net energy has been delivered.

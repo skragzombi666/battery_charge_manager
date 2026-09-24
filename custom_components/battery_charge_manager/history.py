@@ -64,41 +64,57 @@ def revision_differences(
 
 
 def chart_samples(samples: list[MeasurementSample], limit: int = 600) -> list[dict[str, Any]]:
-    """Bound chart payload while retaining endpoints and per-bucket extrema."""
-    # Reconstruct only a labelled diagnostic estimate for old records, before
-    # chart thinning. Raw persisted measurements remain untouched.
-    if samples and any(item.power_estimate_wh is None for item in samples):
-        samples = deepcopy(samples)
-        estimate = 0.0
-        for i, item in enumerate(samples):
-            if item.power_estimate_wh is not None:
-                estimate = item.power_estimate_wh
-            elif item.power_integral_valid and item.power_energy_wh is not None:
-                # Trust stored cumulative evidence across chart compaction.
-                estimate = item.power_energy_wh
-                item.power_estimate_wh = estimate
-            else:
-                if i:
-                    previous = samples[i - 1]
-                    seconds = (datetime.fromisoformat(item.timestamp) - datetime.fromisoformat(previous.timestamp)).total_seconds()
-                    if previous.power_w is not None and isfinite(previous.power_w) and previous.power_w >= 0 and 0 < seconds <= 120:
-                        estimate += previous.power_w * seconds / 3600
-                if item.power_w is not None:
-                    item.power_estimate_wh = estimate
-                    item.power_integral_valid = False
-    if len(samples) <= limit:
-        return [item.as_dict() for item in samples]
-    keys = ("power_w", "net_power_w", "gross_energy_wh", "net_energy_wh", "temperature_c", "meter_energy_wh", "power_estimate_wh", "power_energy_wh")
-    buckets = max(1, (limit - 2) // (2 * len(keys) + 2))
-    indices = {0, len(samples) - 1}
-    for bucket in range(buckets):
-        start = bucket * len(samples) // buckets
-        stop = (bucket + 1) * len(samples) // buckets
-        indices.update((start, stop - 1))
-        for key in keys:
-            values = [(getattr(samples[i], key), i) for i in range(start, stop)
-                      if getattr(samples[i], key) is not None
-                      and isfinite(getattr(samples[i], key))]
-            if values:
-                indices.update((min(values)[1], max(values)[1]))
-    return [samples[i].as_dict() for i in sorted(indices)]
+    """Bound ONLY display data. Preserve extrema and mark original data gaps.
+
+    Unknown original fields/provenance remain in the raw archive and paged API;
+    do not send every entity snapshot to the browser for every plotted point.
+    """
+    if not samples:
+        return []
+    limit = max(24, limit)
+    keys = ('power_w','net_power_w','gross_energy_wh','net_energy_wh',
+            'temperature_c','meter_energy_wh','power_estimate_wh','power_energy_wh')
+    indices = set(range(len(samples))) if len(samples) <= limit else {0,len(samples)-1}
+    if len(samples) > limit:
+        buckets = max(1,(limit-2)//(2*len(keys)+2))
+        for bucket in range(buckets):
+            start, stop = bucket*len(samples)//buckets, (bucket+1)*len(samples)//buckets
+            indices.update((start,stop-1))
+            for key in keys:
+                valid = [(getattr(samples[i],key),i) for i in range(start,stop)
+                         if getattr(samples[i],key) is not None and isfinite(getattr(samples[i],key))]
+                if valid:
+                    indices.update((min(valid)[1], max(valid)[1]))
+    result, estimate, gap = [], 0.0, False
+    for i, item in enumerate(samples):
+        if i:
+            previous = samples[i-1]
+            try:
+                seconds = (datetime.fromisoformat(item.timestamp)-datetime.fromisoformat(previous.timestamp)).total_seconds()
+            except (ValueError,TypeError):
+                seconds = -1
+            gap = gap or seconds < 0 or seconds > 120
+            if (not item.power_report_fresh or not previous.power_report_fresh or
+                    (item.interval_quality and item.interval_quality.get('seconds',0) > 0 and
+                     item.interval_quality.get('accepted_seconds',0) < item.interval_quality['seconds']*.99)):
+                gap = True
+        estimate_valid = item.power_integral_valid
+        if item.power_estimate_wh is not None:
+            estimate = item.power_estimate_wh
+        elif item.power_integral_valid and item.power_energy_wh is not None:
+            estimate = item.power_energy_wh
+        else:
+            if i and previous.power_w is not None and isfinite(previous.power_w) and previous.power_w >= 0 and 0 < seconds <= 120:
+                estimate += previous.power_w*seconds/3600
+            estimate_valid = False
+        if i not in indices:
+            continue
+        point = {key:value for key,value in item.as_dict().items() if key not in ('provenance',)}
+        point['provenance'] = {key:item.provenance.get(key) for key in
+            ('received_at','source','event_type','event_at','trigger_entity_id','new_report') if key in item.provenance}
+        point.update(raw_index=i,chart_gap_before=gap, power_integral_valid=estimate_valid)
+        if item.power_estimate_wh is None and item.power_w is not None:
+            point['power_estimate_wh'] = estimate
+        result.append(point)
+        gap = False
+    return result

@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, PLATFORMS
 from .manager import BatteryChargeManager
+from .export import BatteryChargeManagerExportView
 from .panel import async_register_frontend, async_unregister_frontend
 from .websocket_api import async_register_websocket_api
 
@@ -21,6 +22,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if not hass.data.get(_DATA_WS_REGISTERED):
         async_register_websocket_api(hass)
+        hass.http.register_view(BatteryChargeManagerExportView())
         hass.data[_DATA_WS_REGISTERED] = True
     await async_register_frontend(hass)
 

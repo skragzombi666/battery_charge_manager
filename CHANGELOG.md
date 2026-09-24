@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+- Retain every raw measurement, received observation, operation and analysis revision in a transactional SQLite archive. Remove automatic sample thinning, event suppression and the 100-operation cap; never purge old data on storage failure.
+- Import surviving legacy data exactly and expose stopped calibration/idle attempts in history. Manual finish stops and saves even without usable energy; storage/acceptance remain separate and commands are idempotent/serialized.
+- Record unchanged HA state reports independently of cached reads. Preserve source timestamps, raw units/values and interval quality; correct partial integrals with their own idle duration. New idle references use time-weighted input power.
+- Confirm documented low-input regimes with limited pulses after a supported main load. Show undetermined phase when evidence is missing; separate charge, post-end and whole-operation energy without forcing nominal capacity.
+- Add audited manual endpoint selection, nominal-energy context, gap/extrema-aware display, raw-sample inspection and authenticated streamed full JSON export. Existing safety and fixed-source safeguards remain.
+- See [0.4.2 behaviour, migration and downgrade limits](docs/version-0.4.2.md).
+
+
 ## 0.4.1
 
 - Fixed startup zeros and single power spikes causing a permanently latched taper indication. Learn a sustained main-load reference, weight samples by elapsed time, require fresh coverage, and return to main charging after recovery.

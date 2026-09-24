@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from bisect import bisect_right
 import math
 from statistics import median
 from typing import Any
@@ -32,6 +33,14 @@ def advance(
                      max_power_step_wh=0.0, meter_step_wh=None,
                      report_count=0, max_report_interval_seconds=0.0)
     previous_at = state.get('timestamp')
+    before_power, before_estimate = state.get('power_wh', 0), state.get('power_estimate_wh', 0)
+    before_covered = state.get('covered_seconds', 0)
+    before_estimate_covered = state.get('estimate_covered_seconds', 0)
+    reason = ('start' if previous_at is None else 'restart' if restart else
+              'clock_reversal' if timestamp < previous_at else
+              'sample_gap' if timestamp - previous_at > MAX_GAP_SECONDS else
+              'invalid_power' if not finite(power) else
+              'stale_report' if not fresh else 'fresh_held')
     good = finite(power) and fresh
     previous_report = state.get('last_report_at')
     if reported_at is not None:
@@ -92,6 +101,18 @@ def advance(
         state['apparent_valid'] = False
     state.setdefault("power_estimate_wh", 0.0)
     state["estimate_previous_power"] = power
+    state['last_interval'] = {
+        'start': previous_at, 'end': timestamp,
+        'seconds': max(0, timestamp - previous_at) if previous_at is not None else 0,
+        'accepted_seconds': state.get('covered_seconds', 0) - before_covered,
+        'estimate_seconds': state.get('estimate_covered_seconds', 0) - before_estimate_covered,
+        'accepted_wh': state.get('power_wh', 0) - before_power,
+        'estimated_wh': state.get('power_estimate_wh', 0) - before_estimate,
+        'reason': reason,
+    }
+    if (reason == 'fresh_held' and state['last_interval']['seconds'] > 0
+            and state['last_interval']['accepted_seconds'] == 0):
+        state['last_interval']['reason'] = 'unaccepted_previous_or_current_report'
     state.update(timestamp=timestamp, previous_power=power if good else None,
                  previous_good=good, previous_apparent=apparent,
                  voltage_v=voltage, current_a=current, apparent_power_va=apparent)
@@ -112,10 +133,10 @@ def compare(
               'power_step_wh': None, 'coverage_percent': 0.0}
     if not samples or not endpoint:
         return report
-    points = [p for p in samples if _time(p.timestamp) <= _time(endpoint)]
-    if not points:
+    index = bisect_right(samples, _time(endpoint), key=lambda p: _time(p.timestamp)) - 1
+    if index < 0:
         return report
-    first, last = points[0], points[-1]
+    first, last = samples[0], samples[index]
     span = _time(last.timestamp) - _time(reference_at or first.timestamp)
     meter_gross = last.meter_energy_wh if last.meter_energy_wh is not None else last.gross_energy_wh
     report['meter_gross_wh'] = meter_gross
@@ -123,11 +144,18 @@ def compare(
     report['power_estimate_gross_wh'] = last.power_estimate_wh
     report['idle_energy_wh'] = max(0, baseline * span / 3600)
     report['meter_net_wh'] = max(0, meter_gross - baseline * span / 3600)
-    report['power_estimate_net_wh'] = max(0, last.power_estimate_wh - baseline * span / 3600) if last.power_estimate_wh is not None else None
+    covered = min(max(0, span), max(0, last.metering_quality.get('covered_seconds', 0)))
+    estimate_covered = min(max(0, span), max(0, last.metering_quality.get('estimate_covered_seconds', 0)))
+    report['power_idle_energy_wh'] = max(0, baseline * covered / 3600)
+    report['estimate_idle_energy_wh'] = max(0, baseline * estimate_covered / 3600)
+    report['accepted_seconds'] = covered
+    report['estimate_seconds'] = estimate_covered
+    report['span_seconds'] = max(0, span)
+    report['power_estimate_net_wh'] = max(0, last.power_estimate_wh - report['estimate_idle_energy_wh']) if last.power_estimate_wh is not None else None
     report['estimate_complete'] = bool(span > 0 and (last.metering_quality.get('estimate_covered_seconds') or 0) >= span * .99)
     if last.power_energy_wh is None:
         return report
-    report['power_net_wh'] = max(0, last.power_energy_wh - baseline * span / 3600)
+    report['power_net_wh'] = max(0, last.power_energy_wh - report['power_idle_energy_wh'])
     report['apparent_energy_vah'] = last.apparent_energy_vah
     quality = last.metering_quality
     if not quality:

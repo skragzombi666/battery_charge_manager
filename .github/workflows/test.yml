@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: HTTP test dependency
+        run: python -m pip install "aiohttp==3.13.3"
       - name: Frontend regression tests
         run: node --test tests/*.mjs
       - name: Frontend syntax

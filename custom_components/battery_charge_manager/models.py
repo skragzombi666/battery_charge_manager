@@ -58,10 +58,16 @@ class MeasurementSample:
     power_integral_valid: bool = False
     power_report_fresh: bool = False
     metering_quality: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    interval_quality: dict[str, Any] = field(default_factory=dict)
+    unrecognized: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize sample."""
         return {
+            **self.unrecognized,
+            "provenance": self.provenance,
+            "interval_quality": self.interval_quality,
             "timestamp": self.timestamp,
             "meter_energy_wh": self.meter_energy_wh,
             "power_estimate_wh": self.power_estimate_wh,
@@ -73,9 +79,9 @@ class MeasurementSample:
             "power_report_fresh": self.power_report_fresh,
             "metering_quality": self.metering_quality,
             "raw_energy_wh": self.raw_energy_wh,
-            "gross_energy_wh": round(self.gross_energy_wh, 6),
-            "idle_energy_wh": round(self.idle_energy_wh, 6),
-            "net_energy_wh": round(self.net_energy_wh, 6),
+            "gross_energy_wh": self.gross_energy_wh,
+            "idle_energy_wh": self.idle_energy_wh,
+            "net_energy_wh": self.net_energy_wh,
             "power_w": self.power_w,
             "net_power_w": self.net_power_w,
             "temperature_c": self.temperature_c,
@@ -86,6 +92,9 @@ class MeasurementSample:
     def from_dict(cls, data: dict[str, Any]) -> "MeasurementSample":
         """Deserialize sample."""
         return cls(
+            provenance=dict(data.get("provenance", {})),
+            interval_quality=dict(data.get("interval_quality", {})),
+            unrecognized={k: v for k, v in data.items() if k not in cls.__dataclass_fields__},
             timestamp=str(data.get("timestamp", "")),
             meter_energy_wh=_float_or_none(data.get("meter_energy_wh")),
             power_estimate_wh=_float_or_none(data.get("power_estimate_wh")),
@@ -305,11 +314,20 @@ class IdleMeasurement:
     revision_approvals: list[dict[str, Any]] = field(default_factory=list)
     validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
+    origin_session_id: str | None = None
+    completion_status: str = "completed"
+    baseline_method: str = "legacy_median"
+    baseline_coverage_percent: float | None = None
+    analysis_history: list[dict[str, Any]] = field(default_factory=list)
+    trace_id: str | None = None
+    archived_sample_count: int = 0
     samples: list[MeasurementSample] = field(default_factory=list)
 
     @property
     def baseline_power_w(self) -> float:
         """Return the preferred baseline estimate."""
+        if self.baseline_method == "time_weighted_power":
+            return max(0.0, self.average_power_w)
         if self.median_power_w is not None:
             return max(0.0, self.median_power_w)
         return max(0.0, self.average_power_w)
@@ -317,6 +335,14 @@ class IdleMeasurement:
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize measurement."""
         data: dict[str, Any] = {
+            "origin_session_id": self.origin_session_id,
+            "completion_status": self.completion_status,
+            "trace_id": self.trace_id,
+            "archived_sample_count": self.archived_sample_count,
+            "baseline_method": self.baseline_method,
+            "baseline_coverage_percent": self.baseline_coverage_percent,
+            "analysis_history": self.analysis_history,
+
             "measurement_id": self.measurement_id,
             "setup_id": self.setup_id,
             "setup_revision": self.setup_revision,
@@ -351,6 +377,13 @@ class IdleMeasurement:
     def from_dict(cls, data: dict[str, Any]) -> "IdleMeasurement":
         """Deserialize measurement."""
         return cls(
+            origin_session_id=data.get("origin_session_id"),
+            completion_status=data.get("completion_status", "completed"),
+            trace_id=data.get("trace_id"),
+            archived_sample_count=_int_or(data.get("archived_sample_count"), 0),
+            baseline_method=data.get("baseline_method", "legacy_median"),
+            baseline_coverage_percent=data.get("baseline_coverage_percent"),
+            analysis_history=list(data.get("analysis_history", [])),
             measurement_id=str(data["measurement_id"]),
             setup_id=str(data["setup_id"]),
             setup_revision=_int_or(data.get("setup_revision"), 1),
@@ -442,11 +475,24 @@ class CalibrationRecord:
     metering_comparison: dict[str, Any] = field(default_factory=dict)
     comment: str = ""
     comment_history: list[dict[str, Any]] = field(default_factory=list)
+    origin_session_id: str | None = None
+    completion_status: str = "completed"
+    calibration_eligible: bool | None = None
+    analysis_summary: dict[str, Any] = field(default_factory=dict)
+    trace_id: str | None = None
+    archived_sample_count: int = 0
     samples: list[MeasurementSample] = field(default_factory=list)
 
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize calibration."""
         data: dict[str, Any] = {
+            "trace_id": self.trace_id,
+            "archived_sample_count": self.archived_sample_count,
+            "origin_session_id": self.origin_session_id,
+            "completion_status": self.completion_status,
+            "calibration_eligible": self.calibration_eligible,
+            "analysis_summary": self.analysis_summary,
+
             "comment": self.comment,
             "comment_history": self.comment_history,
             "calibration_id": self.calibration_id,
@@ -509,6 +555,12 @@ class CalibrationRecord:
     def from_dict(cls, data: dict[str, Any]) -> "CalibrationRecord":
         """Deserialize calibration."""
         return cls(
+            trace_id=data.get("trace_id"),
+            archived_sample_count=_int_or(data.get("archived_sample_count"), 0),
+            origin_session_id=data.get("origin_session_id"),
+            completion_status=data.get("completion_status", "completed"),
+            calibration_eligible=data.get("calibration_eligible"),
+            analysis_summary=dict(data.get("analysis_summary", {})),
             comment=str(data.get("comment", "")),
             comment_history=[dict(item) for item in data.get("comment_history", [])],
             calibration_id=str(data["calibration_id"]),
@@ -634,6 +686,12 @@ class ChargeSession:
     source_decision: dict[str, Any] = field(default_factory=dict)
     comment: str = ""
     comment_history: list[dict[str, Any]] = field(default_factory=list)
+    completion_record_id: str | None = None
+    end_evidence: dict[str, Any] = field(default_factory=dict)
+    setup_snapshot: dict[str, Any] = field(default_factory=dict)
+    battery_snapshot: dict[str, Any] = field(default_factory=dict)
+    trace_id: str | None = None
+    archived_sample_count: int = 0
     samples: list[MeasurementSample] = field(default_factory=list)
 
     @property
@@ -644,6 +702,13 @@ class ChargeSession:
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize session."""
         data: dict[str, Any] = {
+            "trace_id": self.trace_id,
+            "archived_sample_count": self.archived_sample_count,
+            "completion_record_id": self.completion_record_id,
+            "end_evidence": self.end_evidence,
+            "setup_snapshot": self.setup_snapshot,
+            "battery_snapshot": self.battery_snapshot,
+
             "comment": self.comment,
             "comment_history": self.comment_history,
             "session_id": self.session_id,
@@ -709,6 +774,12 @@ class ChargeSession:
             data.get("gross_energy_wh", data.get("delivered_energy_wh", 0.0))
         )
         return cls(
+            trace_id=data.get("trace_id"),
+            archived_sample_count=_int_or(data.get("archived_sample_count"), 0),
+            completion_record_id=data.get("completion_record_id"),
+            end_evidence=dict(data.get("end_evidence", {})),
+            setup_snapshot=dict(data.get("setup_snapshot", {})),
+            battery_snapshot=dict(data.get("battery_snapshot", {})),
             comment=str(data.get("comment", "")),
             comment_history=[dict(item) for item in data.get("comment_history", [])],
             session_id=data.get("session_id"),

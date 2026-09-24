@@ -28,7 +28,7 @@ class PhaseTrackingTests(unittest.TestCase):
 
     def test_startup_zero_and_first_high_sample_are_not_taper(self):
         self.sample(-30, 0)
-        self.assertEqual(self.sample(0, 2.1), 'main_charge')
+        self.assertEqual(self.sample(0, 2.1), 'undetermined')
         self.assertIsNone(self.manager.session.taper_started_at)
 
     def test_early_zeros_inside_start_window_do_not_latch_taper(self):
@@ -74,7 +74,7 @@ class PhaseTrackingTests(unittest.TestCase):
     def test_stale_low_power_is_not_evidence_of_taper(self):
         self.trace(0, 600, 2.1)
         self.trace(630, 1200, .5, fresh=False)
-        self.assertEqual(self.manager.session.phase, 'main_charge')
+        self.assertEqual(self.manager.session.phase, 'undetermined')
 
     def test_old_latched_startup_flag_is_repaired(self):
         self.manager.session.taper_started_at = self.start.isoformat()

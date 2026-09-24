@@ -96,6 +96,7 @@ class ParallelManagerTests(unittest.IsolatedAsyncioTestCase):
             'switch.s': State('on'), 'sensor.e': State('0', {'unit_of_measurement': 'Wh'}),
             'sensor.p': State('2', {'unit_of_measurement': 'W'}),
         })
+        self.manager.hass.states.values['sensor.p'].last_reported = self.start
         self.manager._async_evaluate_session = AsyncMock(return_value=False)
         self.manager._async_switch_off_checked = AsyncMock(return_value=True)
         self.manager._async_switch_on_checked = AsyncMock()
@@ -223,7 +224,8 @@ class MeteringEvidenceTests(unittest.TestCase):
     def test_idle_correction_uses_switch_on_not_first_observation(self):
         start, trace = self.trace(first_seconds=30)
         report = metering.compare(trace, trace[-1].timestamp, .2, start.isoformat())
-        self.assertAlmostEqual(report['power_net_wh'], trace[-1].power_energy_wh - .4)
+        self.assertAlmostEqual(report['power_net_wh'], trace[-1].power_energy_wh - .2 * trace[-1].metering_quality['covered_seconds'] / 3600)
+        self.assertAlmostEqual(report['idle_energy_wh'], .4)
         self.assertAlmostEqual(report['meter_net_wh'], 3.6)
 
     def test_parallel_sample_and_record_evidence_roundtrip(self):

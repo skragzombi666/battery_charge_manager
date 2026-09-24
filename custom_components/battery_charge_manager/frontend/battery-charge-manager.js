@@ -622,6 +622,41 @@ const portInstruction = (state, language = "en") => {
   return `${batteries} → ${connector} ${ports.join(" + ")}`;
 };
 
+Object.assign(HISTORY_TEXT.de, {
+  retainedArchive: "Rohdatenarchiv: Alle erfassten Messpunkte und Vorgänge bleiben erhalten. Keine automatische Löschung oder Ausdünnung. Diagramme sind Ansichten, nicht das Roharchiv.",
+  storageFailure: "Archivfehler: Neue Werte sind möglicherweise nur im Arbeitsspeicher. Vollständigen Export sichern und Speicher prüfen; keine Daten wurden automatisch gelöscht.",
+  wholeRun: "Gesamtvorgang", chargeSegment: "Abgegrenzte Ladung", postCharge: "Nachlauf nach gewähltem Ladeende", unknownBoundary: "Ladeende nicht eindeutig abgegrenzt",
+  nominalReference: "Nennenergie des Akkus", nominalTotal: "Nennenergie gesamt", inputRatio: "Eingangsenergie / Nennenergie",
+  nominalCaveat: "Versorgungsseitige Eingangsenergie, nicht gemessene Akkukapazität. Das Verhältnis ist kein gemessener Wirkungsgrad. Die Nennenergie begrenzt oder korrigiert das Messergebnis nicht.",
+  ratioEstimate: "Vergleich der abgegrenzten Ladeeingangsenergie; Schätzstatus der Messquelle beachten", ratioHigh: "Auffälliges Energieverhältnis – Messung und Ausgangszustand prüfen.",
+  endpointEdit: "Ladeabschnitt festlegen", endpointEditHint: "Zeitpunkt in lokaler Zeit wählen und begründen. Verwendet wird der letzte erhaltene Messpunkt davor. Rohdaten und bisherige Auswertungen bleiben erhalten. Dies ist keine Freigabe einer unvollständigen Kalibration.",
+  endpointTime: "Gewünschtes Ladeende", endpointReason: "Begründung der Abgrenzung", saveEndpoint: "Abgrenzung speichern", endpointRequired: "Ein gültiger Zeitpunkt und eine Begründung sind erforderlich.",
+  status_completed: "Abgeschlossen", status_aborted: "Abgebrochen · Messdaten erhalten", status_manual_unusable: "Manuell beendet · Nicht für Ladeziele verwendbar", status_automatic_unusable: "Automatisch beendet · Nicht für Ladeziele verwendbar", status_recovered_unreviewed: "Aus Vorgangsprotokoll übernommen · Nicht freigegeben",
+  usage_retained_attempt: "Nicht verwendet: Beendete Messung ohne verwertbare Kalibration", retained_attempt: "Gespeicherte Messung; keine automatisch freigegebene Kalibration.",
+  method_manual_endpoint: "Manuell abgegrenztes Ladeende", method_sustained_low_input: "Bestätigter Niedriglastzustand", method_low_input_regime: "Bestätigter Niedriglastzustand", method_aborted: "Vorgang abgebrochen",
+  aborted: "Vorgang abgebrochen; Messdaten erhalten.", unusable: "Keine verwendbare Kalibrationsgrundlage.",
+  stable: "Stabil", increasing: "Zunehmend", decreasing: "Abnehmend", none: "Keine verwertbaren Daten", not_assessable: "Nicht beurteilbar", phaseEvidence: "Evidenz der Enderkennung", rawCount: "Erhaltene Rohmesspunkte", rawObservation: "Beobachtungsart", rawReceived: "Empfangen am", rawPage: "Rohmesspunkte laden", rawPageNext: "Nächste Rohmesspunkte", rawPageHint: "Unveränderte Rohwerte einschliesslich Herkunft und Qualitätskennzeichnung. Vollständige Reihe im Archivexport.",
+  manualFallback: "Beendet und speichert den Vorgang auch bei unvollständigen Messdaten. Ein nicht verwertbarer Datensatz bleibt sichtbar, wird aber nicht für Ladeziele verwendet.",
+  traceSummary: "Darstellung mit erhaltenen Spitzen und sichtbaren Datenlücken. Alle verfügbaren Rohmesspunkte bleiben separat gespeichert.",
+});
+Object.assign(HISTORY_TEXT.en, {
+  retainedArchive: "Raw archive: All received samples and operations are retained. No automatic deletion or thinning. Charts are views, not the raw archive.",
+  storageFailure: "Archive error: New values may only be in memory. Save the full export and check storage; no data were automatically deleted.",
+  wholeRun: "Entire operation", chargeSegment: "Selected charging interval", postCharge: "After selected charge endpoint", unknownBoundary: "Charge endpoint not established",
+  nominalReference: "Battery nominal energy", nominalTotal: "Total nominal energy", inputRatio: "Input energy / nominal energy",
+  nominalCaveat: "Supply-side input energy, not measured battery capacity. This ratio is not measured efficiency. Nominal energy does not cap or correct the result.",
+  ratioEstimate: "Comparison of the selected charge input; check the measurement source’s estimate status", ratioHigh: "Unusual energy ratio – check measurements and initial charge.",
+  endpointEdit: "Set charging interval", endpointEditHint: "Choose local time and record a reason. The last retained sample at or before it is used. Raw data and previous analyses are retained. This does not approve an incomplete calibration.",
+  endpointTime: "Requested endpoint", endpointReason: "Boundary reason", saveEndpoint: "Save boundary", endpointRequired: "A valid timestamp and a reason are required.",
+  status_completed: "Completed", status_aborted: "Aborted · Data retained", status_manual_unusable: "Manually ended · Not usable for charge targets", status_automatic_unusable: "Automatically ended · Not usable for charge targets", status_recovered_unreviewed: "Recovered from operation log · Not approved",
+  usage_retained_attempt: "Not used: Ended measurement without usable calibration", retained_attempt: "Retained measurement; no automatically approved calibration.",
+  method_manual_endpoint: "Manually selected endpoint", method_sustained_low_input: "Confirmed low-input regime", method_low_input_regime: "Confirmed low-input regime", method_aborted: "Operation aborted",
+  aborted: "Operation aborted; measurement data retained.", unusable: "No usable calibration basis.",
+  stable: "Stable", increasing: "Increasing", decreasing: "Decreasing", none: "No usable data", not_assessable: "Not assessable", phaseEvidence: "Endpoint evidence", rawCount: "Retained raw samples", rawObservation: "Observation type", rawReceived: "Received at", rawPage: "Load raw samples", rawPageNext: "Next raw samples", rawPageHint: "Unchanged raw values including provenance and quality evidence. Complete series in the archive export.",
+  manualFallback: "Ends and saves the operation even with incomplete measurements. Unusable records remain visible but are not used for charge targets.",
+  traceSummary: "Display retains extrema and shows data gaps. All available raw samples remain stored separately.",
+});
+
 const phaseLabel = (phase, language = "en") => {
   const labels = {
     de: {
@@ -629,6 +664,7 @@ const phaseLabel = (phase, language = "en") => {
       preparing: "Vorbereitung",
       waiting_for_load: "Warte auf Ladebeginn",
       main_charge: "Hauptladung",
+      undetermined: "Nicht bestimmbar",
       taper: "Abregelphase",
       confirming_end: "Ladeende wird bestätigt",
       target_reached: "Ziel erreicht",
@@ -641,6 +677,7 @@ const phaseLabel = (phase, language = "en") => {
       preparing: "Preparing",
       waiting_for_load: "Waiting for charging",
       main_charge: "Main charge",
+      undetermined: "Undetermined",
       taper: "Taper phase",
       confirming_end: "Confirming charge endpoint",
       target_reached: "Target reached",
@@ -693,7 +730,10 @@ const energyReadings = (data) => {
     complete && sameValue ? "integrationComplete" : estimateGross !== null ? "integrationEstimated" : "integrationPartial";
   const net = (gross) => gross === null || idle === null ? null : Math.max(0, gross - idle);
   return {meterGross, powerGross, acceptedGross, idle, idleKnown,
-    meterNet: net(meterGross), powerNet: net(powerGross), status,
+    meterNet: idleKnown ? energyNumber(r.meter_net_wh) ?? net(meterGross) : null,
+    powerNet: idleKnown ? (estimateGross !== null
+      ? energyNumber(r.power_estimate_net_wh) ?? net(powerGross)
+      : energyNumber(r.power_net_wh) ?? net(powerGross)) : null, status,
     counterNotAdvancing: meterGross === 0 && powerGross !== null && powerGross >= .1};
 };
 
@@ -721,18 +761,26 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
   const x = (time) => left + ((time - firstTime) / span) * (width - left - right);
   const grossOnly = mode === "idle" || mode === "gross_calibration";
   for (const item of samples) {
-    const idle = grossOnly ? 0 : Number(item.idle_energy_wh || 0);
+    const reference=Date.parse(session.switch_on_at || session.session_started_at || "");
+    const base=energyNumber(session.idle_baseline_power_w);
+    const elapsed=Number.isFinite(reference) ? Math.max(0,(item.time-reference)/1000) : null;
+    const idle = grossOnly ? 0 : base !== null && elapsed !== null ? base*elapsed/3600 : Number(item.idle_energy_wh || 0);
+    if (!grossOnly && base !== null && energyNumber(item.power_w) !== null) item.net_power_w=Math.max(0,item.power_w-base);
     const meter = energyNumber(item.meter_energy_wh) ?? energyNumber(item.gross_energy_wh);
     item.meter_chart_energy = meter === null ? null : Math.max(0, meter - idle);
     const integrated = energyNumber(item.power_estimate_wh) ?? energyNumber(item.power_energy_wh);
-    item.power_chart_energy = integrated === null ? null : Math.max(0, integrated - idle);
+    const quality = item.metering_quality || {};
+    const ownSeconds = item.power_estimate_wh != null ? quality.estimate_covered_seconds : quality.covered_seconds;
+    const ownIdle = !grossOnly && energyNumber(session.idle_baseline_power_w) !== null && energyNumber(ownSeconds) !== null
+      ? session.idle_baseline_power_w * ownSeconds / 3600 : idle;
+    item.power_chart_energy = integrated === null ? null : Math.max(0, integrated - ownIdle);
   }
   const powerKey = grossOnly ? "power_w" : "net_power_w";
   const energyKey = "meter_chart_energy";
   const hasNumber = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
   const powerValues = samples.map((item) => item[powerKey]).filter(hasNumber).map(Number);
   const energyValues = samples.map((item) => item[energyKey]).filter(hasNumber).map(Number);
-  const powerMax = Math.max(0.1, ...powerValues);
+  const powerMax = Math.max(0.1, ...powerValues, Number((grossOnly ? session.peak_power_w : session.peak_net_power_w) || 0));
   const targetEnergy = mode === "charging" && Number.isFinite(Number(session.target_energy_wh))
     ? Number(session.target_energy_wh)
     : 0;
@@ -740,18 +788,26 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
   const energyMax = Math.max(0.1, targetEnergy, ...energyValues, ...powerEnergyValues);
   const yPower = (value) => height - bottom - (Number(value) / powerMax) * (height - top - bottom);
   const yEnergy = (value) => height - bottom - (Number(value) / energyMax) * (height - top - bottom);
-  const points = (key, y) => samples
-    .filter((item) => hasNumber(item[key]))
-    .map((item) => `${x(item.time).toFixed(1)},${y(item[key]).toFixed(1)}`)
-    .join(" ");
-  const powerPoints = points(powerKey, yPower);
-  const energyPoints = points(energyKey, yEnergy);
-  const powerEnergySegments = samples.slice(1).map((item, index) => {
-    const prev = samples[index];
-    if (!hasNumber(item.power_chart_energy) || !hasNumber(prev.power_chart_energy)) return "";
-    const uncertain = !item.power_integral_valid || !prev.power_integral_valid;
-    return `<polyline class="bcm-chart-power-energy" ${uncertain ? 'stroke-dasharray="5 4"' : ""} points="${x(prev.time).toFixed(1)},${yEnergy(prev.power_chart_energy).toFixed(1)} ${x(item.time).toFixed(1)},${yEnergy(item.power_chart_energy).toFixed(1)}" />`;
-  }).join("");
+  const isGap = (item,prev) => item.chart_gap_before ?? (item.time-prev.time > 120000 || item.time < prev.time);
+  const hasGaps = samples.slice(1).some((item,index) => isGap(item,samples[index]));
+  const series = (key,y,css,name,withQuality=false) => {
+    let result = "";
+    for (let i=0;i<samples.length;i++) {
+      const item=samples[i],prev=samples[i-1];
+      if (!hasNumber(item[key])) continue;
+      const uncertain=withQuality && (!item.power_integral_valid || (prev && !prev.power_integral_valid));
+      const quality=uncertain ? 'stroke-dasharray="5 4"' : '';
+      if (prev && hasNumber(prev[key]) && !isGap(item,prev)) {
+        result += `<polyline class="${css}" ${quality} points="${x(prev.time).toFixed(1)},${y(prev[key]).toFixed(1)} ${x(item.time).toFixed(1)},${y(item[key]).toFixed(1)}" />`;
+      } else {
+        result += `<circle class="${css}" data-gap-point="true" ${quality} cx="${x(item.time).toFixed(1)}" cy="${y(item[key]).toFixed(1)}" r="2" />`;
+      }
+    }
+    return result ? `<g data-series="${name}">${result}</g>` : "";
+  };
+  const powerPoints=series(powerKey,yPower,"bcm-chart-power","power");
+  const energyPoints=series(energyKey,yEnergy,"bcm-chart-energy","energy");
+  const powerEnergySegments=series("power_chart_energy",yEnergy,"bcm-chart-power-energy","power-energy",true);
   const uncertainPower = samples.some(item => item.power_chart_energy != null && !item.power_integral_valid);
   const powerEnergyName = language === "de" ? "Leistungsintegration" : "Power integration";
   const markerLine = (timestamp, marker) => {
@@ -781,15 +837,16 @@ const renderSessionChart = (session, mode, language = "en", compact = false) => 
       ${markerLine(session.candidate_end_at, "candidate-end")}
       ${markerLine(session.charge_finished_at, "charge-end")}
       ${markerLine(session.end_detected_at, "end-detected")}
-      ${powerPoints ? `<polyline data-series="power" class="bcm-chart-power" points="${powerPoints}" />` : ""}
-      ${energyPoints ? `<polyline data-series="energy" class="bcm-chart-energy" points="${energyPoints}" />` : ""}
-      ${powerEnergySegments ? `<g data-series="power-energy">${powerEnergySegments}</g>` : ""}
+      ${powerPoints}
+      ${energyPoints}
+      ${powerEnergySegments}
     </svg>
     <div class="bcm-chart-legend">
       ${powerPoints ? `<span><i class="power"></i>${powerName} · max ${fmt(powerMax)} W</span>` : ""}
       ${energyPoints ? `<span><i class="energy"></i>${energyName} · max ${fmt(Math.max(0,...energyValues))} Wh</span>` : ""}
       ${powerEnergySegments ? `<span><i class="power-energy"></i>${powerEnergyName} · ${fmt(Math.max(0,...powerEnergyValues))} Wh</span>` : ""}
     </div>
+    ${hasGaps ? `<p class="bcm-muted">${language === "de" ? "Datenlücke: Zwischen diesen Punkten wird keine lückenlose Messkurve behauptet." : "Data gap: No continuous measurement trace is claimed between these points."}</p>` : ""}
     ${uncertainPower ? `<p class="bcm-muted">${language === "de" ? "Gestrichelt: Die Leistungsintegration enthält unvollständig erfasste oder fortgeschriebene Leistungswerte. Nur eine Schätzung, kein bestätigter Energieverbrauch." : "Dashed: Power integration includes incomplete observations or held power values. An estimate, not confirmed energy consumption."}</p>` : ""}
   </div>`;
 };
@@ -831,6 +888,12 @@ const BASE_STYLE = `
   .bcm-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0; }
   .bcm-row.stack { align-items:stretch; flex-direction:column; }
   .bcm-muted { color:var(--secondary-text-color); }
+  .bcm-raw-records pre { white-space:pre-wrap; overflow-wrap:anywhere; max-width:100%; font-size:12px; }
+  .bcm-raw-records { max-height:60vh; overflow:auto; margin:12px 0; }
+  .bcm-segments { margin:16px 0; }
+  details > summary { cursor:pointer; overflow-wrap:anywhere; }
+  .bcm-segments > section { margin:14px 0; }
+  td .bcm-energy-metric { min-width:0; }
   .bcm-note { padding:12px; border-radius:10px; background:var(--secondary-background-color); line-height:1.45; }
   .bcm-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
   .bcm-btn { border:0; border-radius:10px; padding:10px 14px; background:var(--primary-color); color:var(--text-primary-color,white); font-weight:600; }
@@ -1110,7 +1173,7 @@ class BatteryChargeManagerPanel extends BcmBase {
           ${this.navButton(this._tab === "charge" ? "manage" : "charge", this.t(this._tab === "charge" ? "manage" : "home"))}
       </header>
       <div class="bcm-shell">
-        ${this._error ? `<div class="bcm-error"><strong>${this.t("error")}:</strong> ${esc(this._error)}</div>` : ""}
+        ${this._state?.storage_error ? `<div class="bcm-error" role="alert">${this.t("storageFailure")}</div>` : ""}${this._error ? `<div class="bcm-error"><strong>${this.t("error")}:</strong> ${esc(this._error)}</div>` : ""}
         ${this.renderBreadcrumbs()}
         ${s && this._tab !== "charge" ? this.renderActiveLink() : ""}
         <main tabindex="-1">${!s ? `<div class="bcm-card">${this.t("loading")}</div>` : this.renderTab(admin)}</main>
@@ -1193,7 +1256,7 @@ class BatteryChargeManagerPanel extends BcmBase {
   }
 
   renderManagement() {
-    return `<p class="bcm-muted">${this.t("manageIntro")}</p>${this._hass?.user?.is_admin ? `<section class="bcm-card"><p>${this.t("exportHelp")}</p><button class="bcm-btn" data-action="export-all" ${this._busy ? "disabled" : ""}>${this.t("exportAll")}</button></section>` : ""}<div class="bcm-grid">${["batteries","setups","idle","calibrations","settings"].map(id => `<button class="bcm-card bcm-management-link" data-tab="${id}"><strong>${this.t(id)}</strong><span class="bcm-muted">${this.t(`${id}Help`)}</span></button>`).join("")}</div>`;
+    return `<p class="bcm-muted">${this.t("manageIntro")}</p><p class="bcm-note">${this.t("retainedArchive")}</p>${this._hass?.user?.is_admin ? `<section class="bcm-card"><p>${this.t("exportHelp")}</p><button class="bcm-btn" data-action="export-all" ${this._busy ? "disabled" : ""}>${this.t("exportAll")}</button></section>` : ""}<div class="bcm-grid">${["batteries","setups","idle","calibrations","settings"].map(id => `<button class="bcm-card bcm-management-link" data-tab="${id}"><strong>${this.t(id)}</strong><span class="bcm-muted">${this.t(`${id}Help`)}</span></button>`).join("")}</div>`;
   }
 
   renderTab(admin) {
@@ -1260,7 +1323,7 @@ class BatteryChargeManagerPanel extends BcmBase {
         <div class="bcm-row"><span>${this.t("quantity")}</span><strong>${session.quantity ?? s.selected_quantity}</strong></div>
         <div class="bcm-row"><span>${this.t("target")}</span><strong>${session.target_percent ?? s.target_percent}%</strong></div>
         <div class="bcm-row"><span>${this.t("calibrationValue")}</span><strong>${fmt(summary.median_net_energy_wh)} Wh</strong></div>
-        <p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p>
+        <p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(this.t(summary.quality || "none"))}</span></p>
       </section>
     </div>`;
   }
@@ -1286,7 +1349,7 @@ class BatteryChargeManagerPanel extends BcmBase {
       <section class="bcm-card">
         <h2>${this.t("readiness")}</h2>
         ${canStart ? `<p><span class="bcm-badge good">${this.t("readyToCharge")}</span></p>` : ""}
-        ${summary.median_net_energy_wh == null ? `<p class="bcm-note">${this.t("noCalibration")}</p><div class="bcm-actions">${this.navButton("calibrations",this.t("calibrationHistory"))}</div>` : `<div class="bcm-row"><span>${this.t("calibrationValue")}</span><strong>${fmt(summary.median_net_energy_wh)} Wh</strong></div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p>`}
+        ${summary.median_net_energy_wh == null ? `<p class="bcm-note">${this.t("noCalibration")}</p><div class="bcm-actions">${this.navButton("calibrations",this.t("calibrationHistory"))}</div>` : `<div class="bcm-row"><span>${this.t("calibrationValue")}</span><strong>${fmt(summary.median_net_energy_wh)} Wh</strong></div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(this.t(summary.quality || "none"))}</span></p>`}
         ${s.active_idle_summary?.usable === false ? `<p class="bcm-note">${this.t("idleChargeRequired")}</p><div class="bcm-actions">${this.navButton("idle",this.t("idle"))}</div>` : ""}
       </section>
     </div>`;
@@ -1382,7 +1445,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     } else {
       leftContent = `${this.selectSetupOnly()}<div class="bcm-note">${this.t("noBatteryIdle")}</div><div class="bcm-note" style="margin-top:8px">${this.t("automaticExplanation")}</div>${admin ? `<div class="bcm-form-grid"><div class="bcm-field"><label>${this.t("minMinutes")}</label><input id="idle-min" data-form-value="idleMin" type="number" min="10" max="1440" value="${esc(this._formValues.idleMin)}"></div><div class="bcm-field"><label>${this.t("maxMinutes")}</label><input id="idle-max" data-form-value="idleMax" type="number" min="30" max="1440" value="${esc(this._formValues.idleMax)}"></div><div class="bcm-field"><label>${this.t("durationMinutes")}</label><input id="idle-fixed" data-form-value="idleFixed" type="number" min="5" max="1440" value="${esc(this._formValues.idleFixed)}"></div></div><div class="bcm-actions"><button class="bcm-btn" data-action="idle-auto" ${s.session.mode !== "idle" || this._busy ? "disabled" : ""}>${this.t("automaticIdle")}</button><button class="bcm-btn secondary" data-action="idle-fixed" ${s.session.mode !== "idle" || this._busy ? "disabled" : ""}>${this.t("fixedIdle")}</button></div>` : `<p class="bcm-admin">${this.t("adminOnly")}</p>`}`;
     }
-    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("idle")}</h2>${leftContent}</section><section class="bcm-card"><h2>${this.t("baseline")}</h2><div class="bcm-metrics">${this.metric(this.t("baseline"), baselineDisplay)}${this.metric(this.t("usedCount"), String(summary.usable === false ? 0 : summary.used_count || 0))}${this.metric(this.t("reliable"), String(summary.reliable_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p></section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${summary.baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}${this.idleTable(rows, admin)}</section>`;
+    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("idle")}</h2>${leftContent}</section><section class="bcm-card"><h2>${this.t("baseline")}</h2><div class="bcm-metrics">${this.metric(this.t("baseline"), baselineDisplay)}${this.metric(this.t("usedCount"), String(summary.usable === false ? 0 : summary.used_count || 0))}${this.metric(this.t("reliable"), String(summary.reliable_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(this.t(summary.quality || "none"))}</span></p></section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${summary.baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}${this.idleTable(rows, admin)}</section>`;
   }
 
   selectSetupOnly() {
@@ -1416,6 +1479,7 @@ class BatteryChargeManagerPanel extends BcmBase {
         ${this.metric(this.t("baseline"), correction)}
       </div>
       ${session.candidate_end_at ? `<div class="bcm-note" style="margin-top:10px"><strong>${this.t("endpoint")}</strong><br>${fmtDate(session.candidate_end_at,this.language)} · ${esc(phaseLabel("confirming_end",this.language))}</div>` : ""}
+      ${this.renderEnergySegments(session.analysis_summary)}
       ${renderSessionChart(session,energyReadings(session).idleKnown ? "calibrating" : "gross_calibration",this.language)}
       ${admin ? `<div class="bcm-actions"><button class="bcm-btn secondary" data-action="finish-calibration" ${this._busy ? "disabled" : ""}>${this.t("finishCalibration")}</button><button class="bcm-btn danger" data-action="stop" ${this._busy ? "disabled" : ""}>${this.t("stop")}</button></div><p class="bcm-muted">${this.t("manualFallback")}</p>` : ""}`;
   }
@@ -1437,7 +1501,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const active = s.session.mode === "calibrating";
     const rows = s.calibrations.filter((item) => item.setup_id === s.selected_setup_id && item.battery_id === s.selected_battery_id && item.quantity === s.selected_quantity);
     const leftContent = active ? this.renderCalibrationSession(admin) : this.renderCalibrationStart(admin);
-    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("calibrations")}</h2>${leftContent}</section><section class="bcm-card"><h2>${this.t("quality")}</h2><div class="bcm-metrics">${this.metric(this.t("calibrationValue"), `${fmt(summary.median_net_energy_wh)} Wh`)}${this.metric(this.t("calibrationDuration"), fmtDuration(summary.median_charge_duration_seconds))}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("pendingCorrection"), String(summary.pending_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}${this.metric(this.t("stdev"), `${fmt(summary.stdev_net_energy_wh,3)} Wh`)}${this.metric(this.t("drift"), `${fmt(summary.drift_percent,1)}%`)}${this.metric(this.t("trend"), esc(summary.trend || "not_assessable"))}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(summary.quality || "none")}</span></p>${this.meteringDecision(summary.source_decision)}<p class="bcm-muted">${this.t("sourceHint")}</p>${this.linearModel()}</section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.calibrationTable(rows, admin)}</section>`;
+    return `<div class="bcm-grid"><section class="bcm-card"><h2>${this.t("calibrations")}</h2>${leftContent}</section><section class="bcm-card"><h2>${this.t("quality")}</h2><div class="bcm-metrics">${this.metric(this.t("calibrationValue"), `${fmt(summary.median_net_energy_wh)} Wh`)}${this.metric(this.t("calibrationDuration"), fmtDuration(summary.median_charge_duration_seconds))}${this.metric(this.t("measurements"), String(summary.count || 0))}${this.metric(this.t("pendingCorrection"), String(summary.pending_count || 0))}${this.metric(this.t("spread"), `${fmt(summary.spread_percent,1)}%`)}${this.metric(this.t("stdev"), `${fmt(summary.stdev_net_energy_wh,3)} Wh`)}${this.metric(this.t("drift"), `${fmt(summary.drift_percent,1)}%`)}${this.metric(this.t("trend"), esc(this.t(summary.trend || "not_assessable")))}</div><p><span class="bcm-badge ${qualityClass(summary.quality)}">${esc(this.t(summary.quality || "none"))}</span></p>${this.meteringDecision(summary.source_decision)}<p class="bcm-muted">${this.t("sourceHint")}</p>${this.linearModel()}</section></div><section class="bcm-card" style="margin-top:14px"><h2>${this.t("history")}</h2>${this.calibrationTable(rows, admin)}</section>`;
   }
 
   linearModel() {
@@ -1460,15 +1524,74 @@ class BatteryChargeManagerPanel extends BcmBase {
       <div class="bcm-note">${this.t("historyHint")}</div>
       <div class="bcm-history-toolbar"><label>${this.t("history")} <select data-history-filter="${kind}">${[["all","allRecords"],["used","usedRecords"],["excluded","excludedRecords"],["historical","historicalRecords"]].map(([value,label]) => `<option value="${value}" ${value === filter ? "selected" : ""}>${this.t(label)}</option>`).join("")}</select></label><span>${this.t("usedCount")}: <strong>${rows.filter((item) => item.used).length}</strong> / ${rows.length}</span></div>
       <div class="bcm-table-wrap"><table class="bcm-history-table"><thead><tr>${["validity","originRevision","usage","result","recorded","actions"].map((key) => `<th>${this.t(key)}</th>`).join("")}</tr></thead><tbody>${filtered.slice(0,limit).map((item) => `<tr>
-        ${cell("validity", `${this.validityBadge(item)}<div class="bcm-muted">${this.t("confidence")}: ${this.t(`confidence_${item.confidence || "unknown"}`)}</div>${kind === "idle" ? `<div class="bcm-muted">${this.t(item.reliable ? "reliable" : "unreliableLabel")}</div>` : ""}`)}
+        ${cell("validity", `${this.completionBadge(item)}${this.validityBadge(item)}<div class="bcm-muted">${this.t("confidence")}: ${this.t(`confidence_${item.confidence || "unknown"}`)}</div>${kind === "idle" ? `<div class="bcm-muted">${this.t(item.reliable ? "reliable" : "unreliableLabel")}</div>` : ""}`)}
         ${cell("originRevision", `${revision(item)}<div class="bcm-muted">${this.t(`revision_${item.revision_status || "native"}`)}</div>`)}
         ${cell("usage", this.usageBadge(item), "bcm-use-cell")}
-        ${cell("result", kind === "idle" ? `${item.below_detection_limit ? `&lt; ${fmt(item.upper_bound_power_w,3)}` : fmt(item.median_power_w ?? item.average_power_w,3)} W<br><span class="bcm-muted">${this.t(item.mode === "automatic" ? "auto" : "fixed")}</span>` : `${item.idle_correction_status === "pending" ? `${fmt(item.gross_energy_wh)} Wh<br><span class="bcm-muted">${this.t("gross")}</span>` : `${fmt(item.net_energy_wh)} Wh<br><span class="bcm-muted">${this.t("net")}</span>`}`)}
+        ${cell("result", kind === "idle" ? `${item.below_detection_limit ? `&lt; ${fmt(item.upper_bound_power_w,3)}` : fmt(item.baseline_method === "unavailable" ? null : item.baseline_method === "time_weighted_power" ? item.average_power_w : item.median_power_w ?? item.average_power_w,3)} W<br><span class="bcm-muted">${this.t(item.mode === "automatic" ? "auto" : "fixed")}</span>` : this.energyMetric(item.idle_correction_status === "pending" ? "gross" : "net",item))}
         ${cell("recorded", `${fmtDate(item.started_at || item.session_started_at || item.finished_at,this.language)}<br><span class="bcm-muted">${fmtDuration(item.duration_seconds ?? item.charge_duration_seconds)}</span>`)}
         ${cell("actions", this.recordActions(item,kind,admin), "bcm-record-actions")}
       </tr>`).join("")}</tbody></table></div>
       ${!filtered.length ? `<p class="bcm-muted">${this.t("measurements")}: 0</p>` : ""}
       ${filtered.length > limit ? `<button class="bcm-btn secondary" data-history-more="${kind}">${this.t("moreRecords")} (${filtered.length - limit})</button>` : ""}`;
+  }
+
+  completionBadge(item) {
+    return item.completion_status ? `<p class="bcm-note">${esc(this.t(`status_${item.completion_status}`))}</p>` : "";
+  }
+
+  renderEnergySegments(summary) {
+    if (!summary) return "";
+    const segment = (key,label) => {
+      const r=summary[key];
+      if (!r) return `<section class="bcm-note" data-energy-segment="${key}"><h3>${this.t(label)}</h3>${this.t("unknownBoundary")}</section>`;
+      const data={idle_baseline_power_w:r.idle_correction_known ? 0 : null,idle_energy_wh:r.idle_energy_wh,
+        idle_correction_status:r.idle_correction_known ? "applied" : "pending",metering_comparison:r};
+      return `<section data-energy-segment="${key}"><h3>${this.t(label)}</h3><div class="bcm-metrics">${this.energyMetric("gross",data)}${this.energyMetric("net",data)}</div><p class="bcm-muted">${this.t("elapsed")}: ${fmtDuration(r.span_seconds)} · ${this.t("coverage")}: ${fmt(r.coverage_percent,1)} %</p></section>`;
+    };
+    const n=summary.nominal || {}, evidence=summary.endpoint_evidence || {};
+    return `<details class="bcm-segments" data-disclosure="energy-segments"><summary>${this.t("wholeRun")} / ${this.t("chargeSegment")} / ${this.t("postCharge")}</summary>
+      ${segment("total","wholeRun")}${segment("charge","chargeSegment")}${segment("post_charge","postCharge")}
+      ${n.total_wh ? `<section class="bcm-note"><h3>${this.t("nominalReference")}</h3><p>${this.t("nominalTotal")}: <strong>${fmt(n.total_wh,3)} Wh</strong></p><p>${this.t("inputRatio")}: ${fmt(n.input_to_nominal_ratio,2)}</p>${n.input_to_nominal_ratio != null ? `<p>${this.t("ratioEstimate")}</p>` : ""}<p>${this.t("nominalCaveat")}</p>${n.warning ? `<strong>${this.t("ratioHigh")}</strong>` : ""}</section>` : ""}
+      ${evidence.mean_power_w != null ? `<p>${this.t("phaseEvidence")}: ${fmt(evidence.mean_power_w,3)} W · ${this.t("elapsed")}: ${fmtDuration(evidence.elapsed_seconds)} · ${this.t("coverage")}: ${fmt(evidence.coverage_percent,1)} %</p>` : ""}
+    </details>`;
+  }
+
+  renderEndpointEditor(d,allowed) {
+    if (!allowed || !d.endpoint_editable) return "";
+    return `<details data-disclosure="endpoint-editor"><summary>${this.t("endpointEdit")}</summary><p class="bcm-note">${this.t("endpointEditHint")}</p>
+      <div class="bcm-field"><label>${this.t("endpointTime")}<input type="datetime-local" step="1" data-endpoint-time value="${esc(this._endpointTime || "")}"></label></div>
+      <div class="bcm-field"><label>${this.t("endpointReason")}<textarea data-endpoint-reason>${esc(this._endpointReason || "")}</textarea></label></div>
+      <button class="bcm-btn secondary" data-action="save-endpoint" ${this._busy ? "disabled" : ""}>${this.t("saveEndpoint")}</button>
+      </details>`;
+  }
+
+  renderRawInspector(d,admin) {
+    if (!admin || !d.has_trace && !d.endpoint_editable) return "";
+    const page=this._rawPage;
+    return `<details data-disclosure="raw-observations"><summary>${this.t("rawCount")} (${d.sample_count ?? page?.sample_count ?? "–"})</summary><p>${this.t("rawPageHint")}</p>
+      <button class="bcm-btn secondary" data-action="raw-first">${this.t("rawPage")}</button>
+      ${page ? `<p>${page.offset+1}–${page.offset+page.samples.length} / ${page.sample_count}</p><div class="bcm-raw-records">${page.samples.map((point,i)=>`<details><summary>${page.offset+i+1} · ${esc(point.timestamp)} · ${esc(point.power_w ?? "–")} W</summary><pre>${esc(JSON.stringify(point,null,2))}</pre></details>`).join("")}</div>${page.offset > 0 ? `<button class="bcm-btn secondary" data-action="raw-prev">←</button>` : ""}${page.next_offset != null ? `<button class="bcm-btn secondary" data-action="raw-next">${this.t("rawPageNext")}</button>` : ""}` : ""}</details>`;
+  }
+
+  async loadRawPage(offset=0) {
+    const d=this._measurementDetail;
+    if (!d || this._busy || !this._hass?.user?.is_admin) return;
+    this._busy=true;
+    try {
+      const result=await this._hass.callWS({type:`${BCM_DOMAIN}/get_raw_samples`,record_type:d.record_type,
+        record_id:d.calibration_id || d.measurement_id,offset,limit:100});
+      if (this._measurementDetail === d) this._rawPage=result;
+    } catch (err) {this._error=err?.message || String(err);}
+    finally {this._busy=false;this._requestRender(true);}
+  }
+
+  async saveEndpoint() {
+    const d=this._measurementDetail;
+    if (!d || this._busy || !this._hass?.user?.is_admin || this._state.session.mode !== "idle") return;
+    const at=new Date(this._endpointTime || ""), reason=(this._endpointReason || "").trim();
+    if (!Number.isFinite(at.getTime()) || !reason) { this._error=this.t("endpointRequired");this._requestRender(true);return; }
+    await this.call("set_calibration_endpoint",{record_id:d.calibration_id,endpoint_at:at.toISOString(),reason,expected_analysis_revision:d.analysis_revision || 1});
+    await this.openMeasurement("calibration",d.calibration_id);
   }
 
   validityBadge(item) {
@@ -1495,6 +1618,9 @@ class BatteryChargeManagerPanel extends BcmBase {
     this._decisionReason = "";
     this._decisionConfirmed = false;
     this._sampleIndex = 0;
+    this._rawPage = null;
+    this._endpointTime = "";
+    this._endpointReason = "";
     this._dialogScrollTop = 0;
     this._openDisclosures = [];
     this._error = "";
@@ -1576,17 +1702,19 @@ class BatteryChargeManagerPanel extends BcmBase {
     const snapshots = [["setup",d.setup_snapshot], ...(calibration ? [["battery",d.battery_snapshot]] : [])].map(([scope,snapshot]) => `<h3>${this.t(scope)}</h3><table class="bcm-detail-table"><tbody>${Object.entries(snapshot || {}).filter(([key]) => !["setup_id","battery_id","created_at","updated_at","image"].includes(key)).map(([key,value]) => `<tr><th>${this.measurementFieldLabel(key)}</th><td>${this.measurementFieldValue(key,value)}</td></tr>`).join("")}</tbody></table>`).join("");
     const times = calibration ? [["recorded",d.session_started_at],["endpoint",d.charge_finished_at],["detected",d.end_detected_at]] : [["recorded",d.started_at],["detected",d.finished_at]];
     return `<div class="bcm-overlay"><div class="bcm-dialog" role="dialog" aria-modal="true" aria-labelledby="bcm-detail-title">${header}${error}
-      <div class="bcm-detail-status">${this.validityBadge(d)}<span>${this.t("confidence")}: <strong>${this.t(`confidence_${d.confidence || "unknown"}`)}</strong></span>${this.usageBadge(d)}</div>
+      <div class="bcm-detail-status">${this.completionBadge(d)}${this.validityBadge(d)}<span>${this.t("confidence")}: <strong>${this.t(`confidence_${d.confidence || "unknown"}`)}</strong></span>${this.usageBadge(d)}</div>
       ${stale ? `<div class="bcm-note">${this.t("staleDetail")} <button class="bcm-btn secondary" data-action="refresh-measurement">${this.t("refresh")}</button></div>` : ""}
       ${active ? `<p class="bcm-note">${this.t("activeSessionHint")}</p>` : ""}${decision}
       <section>${action === "approve" ? "" : this.revisionComparison(d)}${d.invalid_reason ? `<p>${this.t("decisionReason")}: ${esc(d.invalid_reason)}</p>` : ""}</section>
-      <section><div class="bcm-metrics">${this.energyMetric("gross", d)}${calibration ? `${metric("idleEnergy", d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_energy_wh)} Wh`)}${this.energyMetric("net", d)}${metric("baseline",d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_baseline_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.charge_duration_seconds))}${metric("peakPower",`${fmt(d.peak_power_w)} W`)}` : `${metric("measuredBaseline", d.below_detection_limit ? `&lt; ${fmt(d.upper_bound_power_w,3)} W` : `${fmt(d.median_power_w ?? d.average_power_w,3)} W`)}${metric("stdev",`${fmt(d.stdev_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.duration_seconds))}`}</div>${calibration ? `<p>${this.t("quantity")}: ${d.quantity} · ${this.t("portsUsed")}: ${esc((d.ports || []).join(" + "))}</p><p>${this.t("method")}: ${esc(this.t(`method_${d.end_method}`))} · ${this.t("analysisRevision")} ${d.analysis_revision || 1}</p>` : `<p>${this.t("measurementMode")}: ${this.t(d.mode === "automatic" ? "auto" : "fixed")} · ${this.t(d.reliable ? "reliable" : "unreliableLabel")}</p>`}${times.map(([label,value]) => `<div class="bcm-row"><span>${this.t(label)}</span><strong>${fmtDate(value,this.language)}</strong></div>`).join("")}</section>
-      ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${calibration ? `<h3>${this.t("recordedSource")}</h3>${this.meteringDecision(d.source_decision?.policy_version ? d.source_decision : {source:d.energy_source || "meter",reason:"legacy_meter"})}${d.effective_source_decision ? `<h3>${this.t("currentSource")}</h3>${this.meteringDecision(d.effective_source_decision)}` : ""}${this.meteringComparison(d.metering_comparison)}` : ""}${sourceLinks}
+      <section><div class="bcm-metrics">${this.energyMetric("gross", d)}${calibration ? `${metric("idleEnergy", d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_energy_wh)} Wh`)}${this.energyMetric("net", d)}${metric("baseline",d.idle_correction_status === "pending" ? "–" : `${fmt(d.idle_baseline_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.charge_duration_seconds))}${metric("peakPower",`${fmt(d.peak_power_w)} W`)}` : `${metric("measuredBaseline", d.below_detection_limit ? `&lt; ${fmt(d.upper_bound_power_w,3)} W` : `${fmt(d.baseline_method === "unavailable" ? null : d.baseline_method === "time_weighted_power" ? d.average_power_w : d.median_power_w ?? d.average_power_w,3)} W`)}${metric("stdev",`${fmt(d.stdev_power_w,3)} W`)}${metric("elapsed",fmtDuration(d.duration_seconds))}`}</div>${calibration ? `<p>${this.t("quantity")}: ${d.quantity} · ${this.t("portsUsed")}: ${esc((d.ports || []).join(" + "))}</p><p>${this.t("method")}: ${esc(this.t(`method_${d.end_method}`))} · ${this.t("analysisRevision")} ${d.analysis_revision || 1}</p>` : `<p>${this.t("measurementMode")}: ${this.t(d.mode === "automatic" ? "auto" : "fixed")} · ${this.t(d.reliable ? "reliable" : "unreliableLabel")}</p>`}${times.map(([label,value]) => `<div class="bcm-row"><span>${this.t(label)}</span><strong>${fmtDate(value,this.language)}</strong></div>`).join("")}</section>
+      ${calibration ? `${this.renderEnergySegments(d.analysis_summary)}${this.renderEndpointEditor(d,admin && !active && !stale)}` : ""}
+      ${d.idle_baseline_is_lower_bound ? `<p class="bcm-note">${this.t("lowerBoundHint")}</p>` : ""}<section><h3>${this.t("trace")}</h3>${trace}</section>${calibration ? `<h3>${this.t("recordedSource")}</h3>${this.meteringDecision(d.source_decision?.policy_version ? d.source_decision : {source:d.calibration_eligible === false ? null : d.energy_source || "meter",reason:d.calibration_eligible === false ? "retained_attempt" : "legacy_meter"})}${d.effective_source_decision ? `<h3>${this.t("currentSource")}</h3>${this.meteringDecision(d.effective_source_decision)}` : ""}${this.meteringComparison(d.metering_comparison)}` : ""}${sourceLinks}
       ${calibration ? `<section><h3>${this.t("calibrationComment")}</h3>${admin ? `<textarea aria-label="${this.t("calibrationComment")}" data-comment-draft>${esc(this._commentDraft ?? d.comment ?? "")}</textarea><div class="bcm-actions"><button class="bcm-btn" data-action="save-comment" ${this._busy ? "disabled" : ""}>${this.t("saveComment")}</button></div>` : `<p style="white-space:pre-wrap">${esc(d.comment || "–")}</p>`}<details data-disclosure="comment-history"><summary>${this.t("commentHistory")}</summary>${(d.comment_history || []).map(item => `<div class="bcm-note"><strong>${fmtDate(item.changed_at,this.language)}</strong><p style="white-space:pre-wrap">${esc(item.comment || "–")}</p></div>`).join("")}</details></section>` : ""}
+      ${this.renderRawInspector(d,admin)}
       <details data-disclosure="changes"><summary>${this.t("changes")}</summary>${this.revisionChanges(d)}</details>
       <details data-disclosure="snapshots"><summary>${this.t("snapshots")}</summary>${snapshots}</details>
       <details data-disclosure="decisions"><summary>${this.t("decisions")}</summary>${this.decisionHistory(d)}</details>
-      ${calibration ? `<details data-disclosure="analyses"><summary>${this.t("priorAnalyses")} (${(d.analysis_history || []).length})</summary>${(d.analysis_history || []).map((item) => `<div class="bcm-note"><strong>${this.t("priorResult")} ${item.analysis_revision}</strong> · ${fmtDate(item.analyzed_at,this.language)}<p>${this.t("net")}: ${fmt(item.net_energy_wh)} Wh · ${this.t("baseline")}: ${fmt(item.idle_baseline_power_w,3)} W</p><p>${this.t("endpoint")}: ${fmtDate(item.charge_finished_at,this.language)}</p></div>`).join("")}</details>` : ""}
+      ${calibration ? `<details data-disclosure="analyses"><summary>${this.t("priorAnalyses")} (${(d.analysis_history || []).length})</summary>${(d.analysis_history || []).map((item) => `<div class="bcm-note"><strong>${this.t("priorResult")} ${item.analysis_revision}</strong> · ${fmtDate(item.analyzed_at || item.replaced_at,this.language)}<p>${this.t("net")}: ${fmt(item.net_energy_wh)} Wh · ${this.t("baseline")}: ${fmt(item.idle_baseline_power_w,3)} W</p><p>${this.t("endpoint")}: ${fmtDate(item.charge_finished_at,this.language)}</p>${item.endpoint_reason ? `<p>${esc(item.endpoint_reason)}</p>` : ""}</div>`).join("")}</details>` : ""}
       ${!action ? this.recordActions(d,kind,admin,true) : ""}<p class="bcm-muted bcm-record-id">ID: ${esc(d.measurement_id || d.calibration_id)}</p>
     </div></div>`;
   }
@@ -1691,6 +1819,8 @@ class BatteryChargeManagerPanel extends BcmBase {
     }));
     this.shadowRoot.querySelectorAll("[data-history-filter]").forEach((el) => el.addEventListener("change", () => { this._historyFilters[el.dataset.historyFilter] = el.value; this._historyLimits[el.dataset.historyFilter] = 25; this.render(); }));
     this.shadowRoot.querySelectorAll("[data-history-more]").forEach((el) => el.addEventListener("click", () => { const kind = el.dataset.historyMore; this._historyLimits[kind] = (this._historyLimits[kind] || 25) + 25; this.render(); }));
+    this.shadowRoot.querySelector("[data-endpoint-time]")?.addEventListener("input", event => { this._endpointTime=event.target.value; });
+    this.shadowRoot.querySelector("[data-endpoint-reason]")?.addEventListener("input", event => { this._endpointReason=event.target.value; });
     this.shadowRoot.querySelector("[data-comment-draft]")?.addEventListener("input", event => { this._commentDraft = event.target.value; });
     const decisionReady = () => {
       const button = this.shadowRoot.querySelector('[data-action="confirm-measurement"]');
@@ -1762,6 +1892,10 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   async handleAction(action) {
     try {
+      if (action === "raw-first") {await this.loadRawPage(0);return;}
+      if (action === "raw-next") {await this.loadRawPage(this._rawPage?.next_offset ?? 0);return;}
+      if (action === "raw-prev") {await this.loadRawPage(Math.max(0,(this._rawPage?.offset || 0)-100));return;}
+      if (action === "save-endpoint") { await this.saveEndpoint(); return; }
       if (action === "export-all") { await this.exportAllMeasurements(); return; }
       if (action === "save-comment") {
         const d = this._measurementDetail;
@@ -1811,6 +1945,20 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   async exportAllMeasurements() {
     if (this._busy || !this._hass?.user?.is_admin) return;
+    if (this._state?.archive_available) {
+      this._busy=true;
+      try {
+        const path=`/api/${BCM_DOMAIN}/export/${encodeURIComponent(this._state.entry_id)}`;
+        const signed=await this._hass.callWS({type:"auth/sign_path",path,expires:60});
+        if (!signed?.path?.startsWith(path+"?")) throw new Error("Invalid export URL");
+        const link=document.createElement("a");
+        link.href=this._hass.hassUrl ? this._hass.hassUrl(signed.path) : signed.path;
+        link.download="battery-charge-manager-archive.json";
+        document.body.appendChild(link);link.click();link.remove();
+      } catch (err) {this._error=err?.message || String(err);}
+      finally {this._busy=false;this._requestRender();}
+      return;
+    }
     const data = await this.call("export_measurements");
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json;charset=utf-8"});
     const url = URL.createObjectURL(blob);

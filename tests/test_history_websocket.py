@@ -18,7 +18,7 @@ from test_core import (
 def handler_namespace():
     path = Path(__file__).resolve().parents[1] / "custom_components/battery_charge_manager/websocket_api.py"
     names = {
-        "_manager", "_send_error", "ws_get_measurement",
+        "_manager", "_send_error", "ws_get_measurement", "ws_set_calibration_endpoint", "ws_get_raw_samples",
         "ws_set_measurement_validity", "ws_set_measurement_revision_approval",
         "ws_reanalyze_calibration", "ws_export_measurements", "ws_set_calibration_comment", "ws_start_calibration", "ws_set_settings",
     }
@@ -60,12 +60,12 @@ class HistoryWebsocketTests(unittest.IsolatedAsyncioTestCase):
             send_error=lambda *args: self.replies.append(("error", *args)),
         )
 
-    def test_detail_lookup_returns_record_and_missing_record_error(self):
+    async def test_detail_lookup_returns_record_and_missing_record_error(self):
         handler = HANDLERS["ws_get_measurement"]
-        handler(self.hass, self.connection, {"id": 1, "record_type": "idle", "record_id": "idle"})
+        await handler(self.hass, self.connection, {"id": 1, "record_type": "idle", "record_id": "idle"})
         self.assertEqual(self.replies[0][2]["measurement_id"], "idle")
         self.assertEqual(self.replies[0][2]["chart_samples"], [])
-        handler(self.hass, self.connection, {"id": 2, "record_type": "idle", "record_id": "missing"})
+        await handler(self.hass, self.connection, {"id": 2, "record_type": "idle", "record_id": "missing"})
         self.assertEqual(self.replies[1][:3], ("error", 2, "home_assistant_error"))
 
     async def test_approval_records_actor_and_rejects_a_stale_revision(self):
@@ -130,3 +130,30 @@ class HistoryWebsocketTests(unittest.IsolatedAsyncioTestCase):
         await HANDLERS["ws_set_settings"](self.hass,self.connection,
             {"id": 21, "max_session_hours": 12})
         self.assertEqual(self.manager.energy_mode,"power")
+
+class EndpointWebsocketTests(unittest.IsolatedAsyncioTestCase):
+    async def test_endpoint_and_raw_page_handlers_forward_audited_arguments(self):
+        self.assertIn('ws_set_calibration_endpoint',HANDLERS)
+        self.assertIn('ws_get_raw_samples',HANDLERS)
+        calls=[]
+        class Manager:
+            async def async_set_calibration_endpoint(self,*args,**kw):calls.append((args,kw))
+            async def async_raw_measurement_page(self,*args):return {'samples':[{'raw':1.234567890123}],'next_offset':None}
+        hass=SimpleNamespace(data={'battery_charge_manager':{'entry':Manager()}})
+        result=[]
+        connection=SimpleNamespace(user=SimpleNamespace(id='actor'),send_result=lambda *a:result.append(a),send_error=lambda *a:result.append(a))
+        await HANDLERS['ws_set_calibration_endpoint'](hass,connection,dict(id=1,record_id='r',endpoint_at='2026-01-01T00:00:00Z',reason='Observed',expected_analysis_revision=2))
+        self.assertEqual(calls[0],(('r','2026-01-01T00:00:00Z'),{'reason':'Observed','expected_analysis_revision':2,'actor_id':'actor'}))
+        await HANDLERS['ws_get_raw_samples'](hass,connection,dict(id=2,record_type='calibration',record_id='r',offset=0,limit=1))
+        self.assertEqual(result[-1][1]['samples'][0]['raw'],1.234567890123)
+
+    async def test_endpoint_handler_uses_actual_keyword_only_manager_contract(self):
+        from test_retention_completion import setup_manager
+        manager,hass,_=setup_manager();await manager.async_stop()
+        record=next(iter(manager.calibrations.values()))
+        hass.data['battery_charge_manager']={'entry':manager};responses=[]
+        conn=SimpleNamespace(user=SimpleNamespace(id='reviewer'),send_result=lambda *a:responses.append(('ok',a)),send_error=lambda *a:responses.append(('error',a)))
+        await HANDLERS['ws_set_calibration_endpoint'](hass,conn,dict(id=1,record_id=record.calibration_id,
+            endpoint_at=record.samples[-1].timestamp,reason='End confirmed manually',expected_analysis_revision=1))
+        self.assertEqual(responses[-1][0],'ok',responses)
+        self.assertEqual(record.analysis_revision,2)

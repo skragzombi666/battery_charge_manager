@@ -77,13 +77,15 @@ class StalledCounterCompletionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(record.metering_comparison['meter_net_wh'], 0)
                 self.assertTrue(all(s.meter_energy_wh == 0 for s in record.samples))
 
-    async def test_estimate_only_manual_completion_is_rejected_without_switching(self):
+    async def test_estimate_only_manual_completion_stops_without_accepting_estimate(self):
         self.prepare(complete=False)
         self.manager._async_switch_off_checked = AsyncMock(return_value=True)
-        with self.assertRaisesRegex(Exception, 'energy'):
-            await self.manager.async_finish_calibration()
-        self.manager._async_switch_off_checked.assert_not_awaited()
-        self.assertTrue(self.manager.session.active)
+        await self.manager.async_finish_calibration()
+        self.manager._async_switch_off_checked.assert_awaited_once()
+        self.assertFalse(self.manager.session.active)
+        record = list(self.manager.calibrations.values())[-1]
+        self.assertEqual(record.completion_status, 'manual_unusable')
+        self.assertIsNone(self.manager._record_source_choice(record)['source'])
 
     def test_safety_energy_limit_is_not_blind_to_zero_counter(self):
         self.prepare()
