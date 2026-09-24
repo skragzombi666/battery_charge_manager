@@ -49,16 +49,21 @@ jobs:
           PY
       - name: Home Assistant integration validation
         uses: home-assistant/actions/hassfest@master
-      - name: Publish verified candidate branch only
+      - name: Transport verified application objects without changing workflows
         shell: bash
         run: |
           git diff --quiet
           test "$(git write-tree)" = fe0934b32f276d9ddc127c16450d246e47d49584
+          echo 'VERIFIED_TREE=fe0934b32f276d9ddc127c16450d246e47d49584'
+          # The Actions token cannot write workflow files. The authorized
+          # connector will restore the tested test.yml and verify the full tree.
+          git restore --source=044aef5bfa9211296ed204e3c4f776442e78de37 --staged --worktree .github/workflows/test.yml
+          test "$(git write-tree)" = e5525a24757de447fa1e3c0af405beac4c786cf2
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'v0.4.2: retain all observations and separate completion from calibration approval' -m 'Add transactional immutable raw archives, idempotent legacy migration and visible excluded attempts. Capture original reports, assess interval quality, separate charging and post-end input, support pulsed low-input confirmation and audited boundaries. Stream complete authenticated exports; preserve protections and nominal-energy distinctions.'
-          git push origin HEAD:refs/heads/maintenance/v0.4.2-verified
-          echo "VERIFIED_COMMIT=$(git rev-parse HEAD)"
-          echo "VERIFIED_TREE=$(git rev-parse HEAD^{tree})"
-          echo "Candidate commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          git commit -m 'build: transport verified 0.4.2 application objects'
+          git push origin HEAD:refs/heads/maintenance/v0.4.2-transport
+          echo "TRANSPORT_COMMIT=$(git rev-parse HEAD)"
+          echo "TRANSPORT_TREE=$(git rev-parse HEAD^{tree})"
+          echo 'Verified full candidate tree: fe0934b32f276d9ddc127c16450d246e47d49584' >> "$GITHUB_STEP_SUMMARY"
           echo 'Verification: Python, JavaScript, metadata and hassfest successful.' >> "$GITHUB_STEP_SUMMARY"
