@@ -13,8 +13,8 @@ class PilotApiTests(unittest.IsolatedAsyncioTestCase):
         hass = SimpleNamespace(data={'battery_charge_manager':{'entry':manager}})
         results = []
         connection = SimpleNamespace(user=SimpleNamespace(id='reviewer'), send_result=lambda *v:results.append(v), send_error=lambda *v:results.append(v))
-        await handlers['ws_set_usage_approval'](hass, connection, dict(id=1, record_type='rest',record_id='r',approved=True,reason='review',expected_analysis_revision=3,expected_fingerprint='decision'))
-        manager.async_set_usage_approval.assert_awaited_once_with('rest','r',True,'review',3,actor_id='reviewer',expected_fingerprint='decision')
+        await handlers['ws_set_usage_approval'](hass, connection, dict(id=1, record_type='rest',record_id='r',approved=True,reason='review',expected_analysis_revision=3,expected_fingerprint='decision',expected_usage_revision=0))
+        manager.async_set_usage_approval.assert_awaited_once_with('rest','r',True,'review',3,actor_id='reviewer',expected_fingerprint='decision',expected_usage_revision=0)
         await handlers['ws_set_usb_comparison'](hass, connection, dict(id=2,record_id='r',energy_wh=4.590,reason='Full run end',expected_analysis_revision=3))
         manager.async_set_usb_comparison.assert_awaited_once_with('r',4.590,'Full run end',3,actor_id='reviewer')
         self.assertEqual(results, [(1,), (2,)])

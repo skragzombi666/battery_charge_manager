@@ -471,6 +471,7 @@ class CalibrationRecord:
     validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
     usage_approval: str = "pending"
+    usage_revision: int = 0
     approval_history: list[dict[str, Any]] = field(default_factory=list)
     energy_basis: str = "no_load_corrected"
     usb_comparison: dict[str, Any] = field(default_factory=dict)
@@ -492,6 +493,7 @@ class CalibrationRecord:
         """Serialize calibration."""
         data: dict[str, Any] = {
             "usage_approval": self.usage_approval,
+            "usage_revision": self.usage_revision,
             "approval_history": self.approval_history,
             "energy_basis": self.energy_basis,
             "usb_comparison": self.usb_comparison,
@@ -566,6 +568,7 @@ class CalibrationRecord:
         """Deserialize calibration."""
         return cls(
             usage_approval=data.get("usage_approval", "pending"),
+            usage_revision=_int_or(data.get("usage_revision"), 0),
             approval_history=[dict(item) for item in data.get("approval_history", [])],
             energy_basis=data.get("energy_basis", "no_load_corrected"),
             usb_comparison=dict(data.get("usb_comparison", {})),

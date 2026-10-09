@@ -30,7 +30,7 @@ test('proposal is presented for review without claiming known charge duration',(
 test('use approval uses its own API and optimistic analysis revision',async()=>{
  const p=panel();p._measurementDetail={record_type:'calibration',calibration_id:'r',analysis_revision:4,usage_approval:'pending'};p._recordDecision='approve-use';p._decisionReason='Kurve und USB geprüft';
  const calls=[];p.call=async(c,args)=>calls.push([c,args]);p.openMeasurement=async()=>{};
- await p.confirmMeasurementDecision();assert.equal(calls[0][0],'set_usage_approval');assert.equal(calls[0][1].expected_analysis_revision,4);assert.equal(calls[0][1].approved,true);
+ await p.confirmMeasurementDecision();assert.equal(calls[0][0],'set_usage_approval');assert.equal(calls[0][1].expected_analysis_revision,4);assert.equal(calls[0][1].approved,true);assert.equal(calls[0][1].expected_usage_revision,0);
 });
 test('rest details show weighted statistics and review actions',()=>{
  const p=panel();p._measurementDetail={record_type:'rest',measurement_id:'r',statistics:{mean_power_w:.08,block_means_w:[.07,.08,.09],eligible:true,held_seconds:100},valid:true,analysis_revision:1,usage_approval:'pending',chart_samples:[]};

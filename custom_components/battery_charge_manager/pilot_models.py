@@ -29,6 +29,7 @@ class RestMeasurement:
     analysis_revision: int = 1
     algorithm_version: str = ALGORITHM_VERSION
     usage_approval: str = 'pending'
+    usage_revision: int = 0
     approval_history: list[dict] = field(default_factory=list)
     validity_history: list[dict] = field(default_factory=list)
     revision_approvals: list[dict] = field(default_factory=list)

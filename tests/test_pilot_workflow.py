@@ -190,3 +190,46 @@ class PilotWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(manager._usage_current(record))
         restored = CalibrationRecord.from_dict(record.as_dict())
         self.assertTrue(manager._usage_current(restored))
+
+    async def test_legacy_finish_conversion_requires_a_new_explicit_endpoint(self):
+        manager, _, _ = pilot_manager()
+        samples=trace(range(0,3601,30))
+        record=CalibrationRecord.from_dict(dict(calibration_id='legacy',setup_id='setup',battery_id='battery',
+            switch_on_at=samples[0].timestamp,charge_finished_at=samples[-1].timestamp,
+            switch_off_at=samples[-1].timestamp,charge_duration_seconds=3600,end_method='manual'))
+        record.samples=samples
+        manager.calibrations['legacy']=record
+        await manager.async_reanalyze_calibration('legacy',expected_setup_revision=1,expected_battery_revision=1)
+        self.assertIsNone(record.charge_finished_at)
+        self.assertIsNone(record.charge_duration_seconds)
+        self.assertEqual(record.analysis_history[-1]['charge_finished_at'],samples[-1].timestamp)
+        with self.assertRaises(manager_module.HomeAssistantError):
+            await manager.async_set_usage_approval('calibration','legacy',True,'review',record.analysis_revision)
+        await manager.async_set_calibration_endpoint('legacy',samples[-1].timestamp,
+            reason='Deliberately selected from trace',expected_analysis_revision=record.analysis_revision)
+        await manager.async_set_usage_approval('calibration','legacy',True,'review',record.analysis_revision)
+        self.assertAlmostEqual(manager.calibration_summary('setup','battery',1)['median_net_energy_wh'],2)
+
+    async def test_stale_dialog_cannot_restore_withdrawn_use_approval(self):
+        manager, _, _ = pilot_manager()
+        samples=trace(range(0,3601,30))
+        record=CalibrationRecord.from_dict(dict(calibration_id='r',setup_id='setup',battery_id='battery',
+            switch_on_at=samples[0].timestamp,charge_finished_at=samples[-1].timestamp,
+            switch_off_at=samples[-1].timestamp,end_method='manual_endpoint',energy_source='power_reported',
+            energy_basis='gross',calibration_eligible=True,ports=['A']))
+        record.samples=samples
+        record.metering_comparison=metering.compare(samples,samples[-1].timestamp,0)
+        manager._select_calibration_energy(record,'power_reported')
+        manager.calibrations['r']=record
+        fingerprint=manager._decision_fingerprint(record)
+        cached_revision=getattr(record,'usage_revision',0)
+        await manager.async_set_usage_approval('calibration','r',True,'first decision',1,
+            expected_fingerprint=fingerprint,expected_usage_revision=cached_revision)
+        self.assertTrue(manager._usage_current(record))
+        await manager.async_set_usage_approval('calibration','r',False,'withdraw',1,
+            expected_fingerprint=fingerprint,expected_usage_revision=record.usage_revision)
+        with self.assertRaises(manager_module.HomeAssistantError):
+            await manager.async_set_usage_approval('calibration','r',True,'stale decision',1,
+                expected_fingerprint=fingerprint,expected_usage_revision=cached_revision)
+        self.assertEqual(record.usage_approval,'revoked')
+        self.assertFalse(manager._usage_current(record))

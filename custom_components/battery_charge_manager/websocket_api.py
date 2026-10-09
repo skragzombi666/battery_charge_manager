@@ -609,6 +609,7 @@ async def ws_confirm_rest_reference(hass, connection, msg) -> None:
     vol.Required('approved'): bool,
     vol.Required('reason'): str,
     vol.Required('expected_fingerprint'): str,
+    vol.Required('expected_usage_revision'): vol.All(int, vol.Range(min=0)),
     vol.Required('expected_analysis_revision'): vol.All(int, vol.Range(min=1)),
 })
 @websocket_api.async_response
@@ -616,7 +617,7 @@ async def ws_set_usage_approval(hass, connection, msg) -> None:
     """Record a human decision about use of this exact analysis."""
     try:
         await _manager(hass).async_set_usage_approval(msg['record_type'], msg['record_id'],
-            msg['approved'], msg['reason'], msg['expected_analysis_revision'], actor_id=connection.user.id, expected_fingerprint=msg['expected_fingerprint'])
+            msg['approved'], msg['reason'], msg['expected_analysis_revision'], actor_id=connection.user.id, expected_fingerprint=msg['expected_fingerprint'], expected_usage_revision=msg['expected_usage_revision'])
     except (HomeAssistantError, ValueError, TypeError) as err:
         _send_error(connection, msg, err)
         return

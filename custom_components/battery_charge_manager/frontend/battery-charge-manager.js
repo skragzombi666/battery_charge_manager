@@ -1728,7 +1728,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     if (!d) return true;
     const rows = d.record_type === "rest" ? (this._state.rest_measurements || []) : d.record_type === "calibration" ? this._state.calibrations : this._state.idle_measurements;
     const liveRow = rows.find((item) => (item.calibration_id || item.measurement_id) === (d.calibration_id || d.measurement_id));
-    return Boolean(liveRow && ["valid","revision_status","current_setup_revision","current_battery_revision","analysis_revision","usage_reason"].some((key) => liveRow[key] !== d[key]));
+    return Boolean(liveRow && ["valid","revision_status","current_setup_revision","current_battery_revision","analysis_revision","usage_reason","usage_revision","decision_fingerprint"].some((key) => liveRow[key] !== d[key]));
   }
 
   meteringDecision(decision = {}) {
@@ -1822,7 +1822,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     if (button) button.disabled = true;
     this._renderLock += 1;
     try {
-      if (action === "approve-use" || action === "revoke-use") await this.call("set_usage_approval", {record_type:kind, record_id:id, approved:action === "approve-use", reason, expected_analysis_revision:d.analysis_revision || 1, expected_fingerprint:d.decision_fingerprint});
+      if (action === "approve-use" || action === "revoke-use") await this.call("set_usage_approval", {record_type:kind, record_id:id, approved:action === "approve-use", reason, expected_analysis_revision:d.analysis_revision || 1, expected_fingerprint:d.decision_fingerprint, expected_usage_revision:d.usage_revision || 0});
       else if (action === "approve" || action === "revoke") await this.call("set_measurement_revision_approval", {record_type:kind, record_id:id, approved:action === "approve", reason, ...revisions});
       else if (action === "reanalyze") await this.call("reanalyze_calibration", {record_id:id, ...revisions});
       else if (["invalidate","restore"].includes(action)) await this.call("set_measurement_validity", {record_type:kind, record_id:id, valid:action === "restore", reason});

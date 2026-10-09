@@ -59,6 +59,7 @@ class PilotWorkflow:
             record.approval_history.append(dict(changed_at=self._now_iso(), approved=False,
                 reason=reason, actor_id=None, automatic=True))
         record.usage_approval = 'pending'
+        record.usage_revision += 1
 
     def rest_reference_summary(self):
         profile = self._profile()
@@ -189,13 +190,15 @@ class PilotWorkflow:
 
     @serialized_command
     async def async_set_usage_approval(self, kind, record_id, approved, reason,
-                                       expected_analysis_revision, actor_id=None, *, expected_fingerprint=None):
+                                       expected_analysis_revision, actor_id=None, *, expected_fingerprint=None, expected_usage_revision=None):
         self._ensure_idle()
         if kind not in ('calibration', 'rest'):
             raise HomeAssistantError('Only calibrations and full-battery references require use approval')
         record = self._measurement(kind, record_id)
         if record.analysis_revision != expected_analysis_revision:
             raise HomeAssistantError('Analysis changed; reopen the measurement')
+        if expected_usage_revision is not None and expected_usage_revision != record.usage_revision:
+            raise HomeAssistantError('Use decision changed; reopen the measurement')
         if expected_fingerprint is not None and expected_fingerprint != self._decision_fingerprint(record):
             raise HomeAssistantError('Decision or profile changed; reopen the measurement')
         if not reason.strip():
@@ -216,6 +219,7 @@ class PilotWorkflow:
                         or self._invalid_idle_references(record)):
                     raise HomeAssistantError('Select a usable charge interval with confirmed switch-off before approval')
         record.usage_approval = 'approved' if approved else 'revoked'
+        record.usage_revision += 1
         record.approval_history.append(dict(changed_at=self._now_iso(), actor_id=actor_id,
             reason=reason.strip(), approved=bool(approved), fingerprint=self._decision_fingerprint(record),
             analysis_revision=record.analysis_revision, algorithm_version=record.algorithm_version))
@@ -254,6 +258,8 @@ class PilotWorkflow:
         record.analysis_summary = {}
 
     def _reanalyze_pilot(self, record, actor_id):
+        if self.energy_mode != 'power_reported':
+            raise HomeAssistantError('Select reported-power pilot mode to reanalyze a pilot record')
         if not record.samples:
             raise HomeAssistantError('A retained power trace is required')
         idle = self.idle_summary(record.setup_id)
@@ -264,6 +270,19 @@ class PilotWorkflow:
         old.update(replaced_at=self._now_iso(), replaced_by=actor_id)
         record.analysis_history.append(old)
         self._invalidate_usage(record, 'Source or energy basis reanalyzed')
+        evidence = record.analysis_summary.get('endpoint_evidence', {})
+        audited_endpoint = (record.end_method == 'manual_endpoint'
+            and evidence.get('method') == 'manual_endpoint' and evidence.get('reason')
+            and evidence.get('selected_sample_at') == record.charge_finished_at)
+        if record.energy_source != 'power_reported' and not audited_endpoint:
+            record.charge_finished_at = None
+            record.charge_duration_seconds = None
+            record.end_detected_at = None
+            record.candidate_end_at = None
+            record.end_method = 'pending_review'
+        if record.completion_status not in ('aborted', 'recovered_unreviewed'):
+            record.completion_status = 'pending_review'
+
         record.energy_basis = self.energy_basis
         record.idle_baseline_power_w = float(idle['baseline_power_w']) if self.energy_basis == 'no_load_corrected' else 0
         record.idle_measurement_ids = list(idle['measurement_ids']) if self.energy_basis == 'no_load_corrected' else []
