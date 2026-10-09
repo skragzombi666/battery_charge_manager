@@ -923,7 +923,9 @@ class BatteryChargeManager(PilotWorkflow, ArchivePersistence):
         idle = (idle_summary or self.idle_summary(record.setup_id)) if not calibration else {}
         included = record_id in used_ids
         used = included and (calibration or idle["usable"])
-        if not record.valid:
+        if calibration and record.usage_approval == 'revoked':
+            reason = "revoked"
+        elif not record.valid:
             reason = "invalid"
         elif status not in {"native", "approved"}:
             reason = status
@@ -949,6 +951,7 @@ class BatteryChargeManager(PilotWorkflow, ArchivePersistence):
         if calibration:
             row["usage_approval_current"] = self._usage_current(record)
             row["decision_fingerprint"] = self._decision_fingerprint(record)
+            row["usage_approval_block_reason"] = self._usage_approval_block_reason(record)
         # Historical payloads are fetched once on demand, not in every live update.
         for key in ("setup_snapshot", "battery_snapshot", "revision_approvals", "validity_history", "analysis_history", "comment_history"):
             row.pop(key, None)

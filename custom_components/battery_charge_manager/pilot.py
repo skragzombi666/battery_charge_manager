@@ -180,13 +180,34 @@ class PilotWorkflow:
         match = current == rest_reference.profile_key(record.setup_id, record.setup_revision,
             record.battery_id, record.battery_revision, record.quantity, record.ports)
         row.update(record_type='rest', used=match and self._usage_current(record),
-            usage_reason='used' if match and self._usage_current(record) else 'pending_review' if match else 'historical',
+            usage_reason='revoked' if record.usage_approval == 'revoked' else 'used' if match and self._usage_current(record) else 'pending_review' if match else 'historical',
             revision_status='native' if match else 'historical',
             sample_count=self._sample_count(record), has_trace=self._sample_count(record) > 0,
             usage_approval_current=self._usage_current(record), decision_fingerprint=self._decision_fingerprint(record),
+            usage_approval_block_reason=self._usage_approval_block_reason(record),
             current_setup_revision=self.setups[record.setup_id].revision if record.setup_id in self.setups else None,
             current_battery_revision=self.batteries[record.battery_id].revision if record.battery_id in self.batteries else None)
         return row
+
+    def _usage_approval_block_reason(self, record):
+        """Use the same approval prerequisites in the UI and command handler."""
+        if not record.valid:
+            return 'invalid_measurement'
+        if isinstance(record, RestMeasurement):
+            current = self._profile(self.setups.get(record.setup_id), self.batteries.get(record.battery_id), record.quantity)
+            profile = rest_reference.profile_key(record.setup_id, record.setup_revision,
+                record.battery_id, record.battery_revision, record.quantity, record.ports)
+            if not record.switch_off_confirmed or not record.statistics.get('eligible') or current != profile:
+                return 'rest_not_usable'
+        else:
+            choice = self._record_source_choice(record)
+            if (not record.charge_finished_at or not record.switch_off_at
+                    or record.calibration_eligible is False or not choice.get('source')
+                    or choice['source'] != record.energy_source
+                    or self._record_revision_status(record) not in ('native', 'approved')
+                    or self._invalid_idle_references(record)):
+                return 'calibration_not_usable'
+        return None
 
     @serialized_command
     async def async_set_usage_approval(self, kind, record_id, approved, reason,
@@ -204,20 +225,13 @@ class PilotWorkflow:
         if not reason.strip():
             raise HomeAssistantError('A reason for the review decision is required')
         if approved:
-            if not record.valid:
-                raise HomeAssistantError('Invalid measurements cannot be approved')
-            if kind == 'rest':
-                if (not record.switch_off_confirmed or not record.statistics.get('eligible')
-                        or self._rest_row(record)['revision_status'] != 'native'):
-                    raise HomeAssistantError('A complete, stable reference for the exact current profile is required')
-            else:
-                choice = self._record_source_choice(record)
-                if (not record.charge_finished_at or not record.switch_off_at
-                        or record.calibration_eligible is False or not choice.get('source')
-                        or choice['source'] != record.energy_source
-                        or self._record_revision_status(record) not in ('native', 'approved')
-                        or self._invalid_idle_references(record)):
-                    raise HomeAssistantError('Select a usable charge interval with confirmed switch-off before approval')
+            blocker = self._usage_approval_block_reason(record)
+            if blocker:
+                raise HomeAssistantError({
+                    'invalid_measurement': 'Invalid measurements cannot be approved',
+                    'rest_not_usable': 'A complete, stable reference for the exact current profile is required',
+                    'calibration_not_usable': 'Select a usable charge interval with confirmed switch-off before approval',
+                }[blocker])
         record.usage_approval = 'approved' if approved else 'revoked'
         record.usage_revision += 1
         record.approval_history.append(dict(changed_at=self._now_iso(), actor_id=actor_id,

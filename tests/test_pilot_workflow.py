@@ -18,6 +18,49 @@ def pilot_manager():
 
 
 class PilotWorkflowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invalid_rest_can_close_review_without_use_or_data_loss(self):
+        from custom_components.battery_charge_manager.pilot_models import RestMeasurement
+        manager, _, _ = pilot_manager()
+        await manager.async_prepare_rest_reference()
+        await manager.async_stop()
+        record = next(iter(manager.rest_measurements.values()))
+        await manager.async_set_measurement_validity('rest', record.measurement_id, False, 'Only a test')
+        original = deepcopy([p.as_dict() for p in record.samples])
+        detail = manager.measurement_details('rest', record.measurement_id)
+        self.assertEqual(detail.get('usage_approval_block_reason'), 'invalid_measurement')
+        with self.assertRaises(manager_module.HomeAssistantError):
+            await manager.async_set_usage_approval('rest', record.measurement_id, True, 'review', 1)
+        await manager.async_set_usage_approval('rest', record.measurement_id, False, 'Only a test', 1,
+            actor_id='reviewer', expected_fingerprint=detail['decision_fingerprint'],
+            expected_usage_revision=detail['usage_revision'])
+        restored = RestMeasurement.from_dict(record.as_dict())
+        self.assertEqual(manager._rest_row(restored)['usage_reason'], 'revoked')
+        self.assertFalse(manager._rest_row(restored)['used'])
+        self.assertFalse(restored.valid)
+        self.assertEqual([p.as_dict() for p in restored.samples], original)
+        self.assertEqual(restored.approval_history[-1]['reason'], 'Only a test')
+        self.assertEqual(restored.approval_history[-1]['actor_id'], 'reviewer')
+        self.assertIsNone(manager.rest_reference_summary()['reference'])
+
+    async def test_unfinished_valid_rest_explains_why_approval_is_blocked(self):
+        manager, _, _ = pilot_manager()
+        await manager.async_prepare_rest_reference()
+        await manager.async_stop()
+        record = next(iter(manager.rest_measurements.values()))
+        record.valid = True
+        self.assertEqual(manager._rest_row(record).get('usage_approval_block_reason'), 'rest_not_usable')
+
+    async def test_rejected_calibration_review_is_complete_even_without_endpoint(self):
+        manager, _, _ = pilot_manager()
+        record = CalibrationRecord.from_dict(dict(calibration_id='r', setup_id='setup', battery_id='battery'))
+        manager.calibrations['r'] = record
+        self.assertEqual(manager._measurement_row(record).get('usage_approval_block_reason'), 'calibration_not_usable')
+        await manager.async_set_usage_approval('calibration', 'r', False, 'Test run', 1)
+        restored = CalibrationRecord.from_dict(record.as_dict())
+        self.assertEqual(manager._measurement_row(restored)['usage_reason'], 'revoked')
+        self.assertFalse(manager._measurement_row(restored)['used'])
+        self.assertIsNone(manager.calibration_summary('setup', 'battery', 1)['median_net_energy_wh'])
+
     async def test_pilot_starts_without_counter_but_checks_required_power(self):
         manager, hass, commands = pilot_manager()
         hass.states.values['sensor.energy'] = State('unavailable')

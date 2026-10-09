@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- Add **Do not use / Nicht verwenden** to close pending calibration and full-battery-reference reviews, including invalid or aborted test runs. Keep original data and record the negative decision with its reason.
+- Show **Reviewed · not approved for use** after a negative decision instead of leaving the review pending. Existing revoked decisions receive the corrected status too.
+- Disable unavailable use approval and explain its prerequisites in the interface, using the same checks as the backend. Measurement validity and use decisions remain separate.
+- No measurement-algorithm or raw-data changes. Update through HACS, restart Home Assistant and reload the browser; open the measurement details, select **Nicht verwenden**, enter a reason and confirm.
+
 ## 0.5.0
 
 - Add an explicit reported-power pilot source and gross/no-load-corrected energy basis. Keep fresh, held and unobserved intervals separate; diagnostic counter resets no longer stop this mode. Required-sensor and shutdown safeguards remain.

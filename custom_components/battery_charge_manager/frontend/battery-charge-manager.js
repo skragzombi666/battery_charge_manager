@@ -668,9 +668,14 @@ Object.assign(TEXT.de, {
   restMean:"Zeitgewichteter Restverbrauch", restBlocks:"Mittelwerte der drei Zeitblöcke", restTolerance:"Vergleichstoleranz", restResolution:"Beobachtete Werteabstufung", restResolutionUnknown:"Auflösung unbekannt · Toleranz mindestens 0,03 W", restDistribution:"Zeitgewichtete Werteverteilung", rest_unstable_blocks:"Zeitblockmittel sind instabil", rest_recording_gap:"Aufzeichnung im Referenzfenster unterbrochen", rest_window_incomplete:"Referenzfenster noch nicht vollständig", rest_not_confirmed:"Beginn nach der Nachladung nicht bestätigt", rest_usable:"Referenzfenster auswertbar", restNoReference:"Keine freigegebene Restreferenz für dieses Profil.",
   proposalHint:"Restphase passend – Ladeende prüfen", proposalUse:"Vorschlag ins Endpunktfeld übernehmen", finishReview:"Beenden und prüfen",
   chargeDurationUnknown:"Ladedauer unbekannt – Ladeende noch nicht festgelegt", sessionDuration:"Aufzeichnungsdauer",
-  'approve-use':"Zur Verwendung freigeben", 'revoke-use':"Verwendung widerrufen",
+  'approve-use':"Zur Verwendung freigeben", 'revoke-use':"Nicht verwenden",
   'approve-useHint':"Messkurve, gewählten Ladeabschnitt und Energiequelle prüfen. Auch vollständige Aufzeichnung kann fortgeschriebene Werte enthalten. Freigabe gilt nur für diese Auswertung; ein einzelner geprüfter Lauf reicht aus.",
-  'revoke-useHint':"Die Messung bleibt erhalten und wird künftig nicht mehr als Referenz verwendet.",
+  'revoke-useHint':"Die Prüfung wird mit „Nicht verwenden“ abgeschlossen. Die Messdaten bleiben erhalten. Die Messung wird nicht als Referenz oder für Ladeziele verwendet.",
+  usage_revoked:"Geprüft · nicht zur Verwendung freigegeben",
+  status_review_declined:"Beendet · Messdaten erhalten",
+  approvalBlocked_invalid_measurement:"Ungültige Messungen können nicht freigegeben werden. Mit „Nicht verwenden“ kannst du die Prüfung abschließen.",
+  approvalBlocked_rest_not_usable:"Freigabe nicht möglich: Eine vollständige, stabile Restmessung mit bestätigtem Ausschalten im aktuellen Profil ist erforderlich.",
+  approvalBlocked_calibration_not_usable:"Freigabe nicht möglich: Ein verwendbarer Ladeabschnitt, bestätigtes Ausschalten sowie passende Quelle und Referenzen sind erforderlich.",
   usage_pending_review:"Prüfung und Freigabe ausstehend", usage_source_or_basis_review_required:"Quelle oder Energiebasis neu auswerten und freigeben",
   source_or_basis_review_required:"Die gewählte Quelle oder Energiebasis wurde für diese Messung noch nicht geprüft.",
   status_pending_review:"Beendet · Ladeende und Verwendung prüfen", method_pending_review:"Ladeende noch nicht festgelegt",
@@ -691,7 +696,12 @@ Object.assign(TEXT.en, {
   restMean:"Time-weighted residual power", restBlocks:"Three block means", restTolerance:"Comparison tolerance", restResolution:"Observed value step", restResolutionUnknown:"Unknown resolution · tolerance at least 0.03 W", restDistribution:"Time-weighted value distribution", rest_unstable_blocks:"Time blocks are unstable", rest_recording_gap:"Recording gap in reference window", rest_window_incomplete:"Reference window incomplete", rest_not_confirmed:"Start after top-up was not confirmed", rest_usable:"Reference window usable", restNoReference:"No approved residual reference for this profile.",
   proposalHint:"Residual phase matches – review charge endpoint", proposalUse:"Copy proposed endpoint into editor", finishReview:"Finish and review",
   chargeDurationUnknown:"Charge duration unknown – select an endpoint first", sessionDuration:"Recording duration",
-  'approve-use':"Approve for use", 'revoke-use':"Revoke use approval", 'approve-useHint':"Review the trace, selected charge interval and energy source. Even continuous recording may contain held values. Approval applies to this analysis only; one reviewed run is sufficient.", 'revoke-useHint':"The measurement is retained and excluded from future references.",
+  'approve-use':"Approve for use", 'revoke-use':"Do not use", 'approve-useHint':"Review the trace, selected charge interval and energy source. Even continuous recording may contain held values. Approval applies to this analysis only; one reviewed run is sufficient.", 'revoke-useHint':"Complete the review with a decision not to use this measurement. Its data are retained and excluded from references and charge targets.",
+  usage_revoked:"Reviewed · not approved for use",
+  status_review_declined:"Ended · measurement data retained",
+  approvalBlocked_invalid_measurement:"Invalid measurements cannot be approved. Select “Do not use” to complete the review.",
+  approvalBlocked_rest_not_usable:"Approval unavailable: a complete, stable residual measurement with confirmed switch-off for the current profile is required.",
+  approvalBlocked_calibration_not_usable:"Approval unavailable: a usable charge interval, confirmed switch-off, and suitable source and references are required.",
   usage_pending_review:"Review and approval pending", usage_source_or_basis_review_required:"Reanalyze and approve the source or energy basis", source_or_basis_review_required:"The selected source or basis has not been reviewed for this run.",
   status_pending_review:"Ended · Review endpoint and use", method_pending_review:"Charge endpoint not selected", reported_power_estimate:"Time-weighted reported-power integration with held intervals disclosed",
   longestHeld:"Longest held-value interval", freshTime:"Time with fresh power reports", heldTime:"Time with held reports", unknownTime:"Unobserved time in analysis interval", startupTime:"Time before first recorded observation",
@@ -1598,7 +1608,8 @@ class BatteryChargeManagerPanel extends BcmBase {
   }
 
   completionBadge(item) {
-    return item.completion_status ? `<p class="bcm-note">${esc(this.t(`status_${item.completion_status}`))}</p>` : "";
+    const status = item.completion_status === "pending_review" && item.usage_approval === "revoked" ? "review_declined" : item.completion_status;
+    return status ? `<p class="bcm-note">${esc(this.t(`status_${status}`))}</p>` : "";
   }
 
   renderEnergySegments(summary) {
@@ -1663,14 +1674,21 @@ class BatteryChargeManagerPanel extends BcmBase {
 
   usageBadge(item) {
     const reason = item.usage_reason || (item.used ? "used" : "historical");
-    return `<span class="bcm-badge ${reason === "used" ? "good" : reason === "invalid" ? "bad" : "warn"}">${this.t(`usage_${reason}`)}</span>`;
+    return `<span class="bcm-badge ${reason === "used" ? "good" : reason === "invalid" ? "bad" : reason === "revoked" ? "" : "warn"}">${this.t(`usage_${reason}`)}</span>`;
+  }
+
+  usageApprovalBlocker(item) {
+    return item.usage_approval_block_reason || (item.valid === false ? "invalid_measurement" : null);
   }
 
   recordActions(item, kind, admin, inDialog = false) {
     const id = item.measurement_id || item.calibration_id;
     const disabled = this._busy || this._state.session.mode !== "idle";
-    const button = (action, label, style = "secondary") => `<button class="bcm-btn ${style}" data-record-action="${action}" data-record-kind="${kind}" data-record-id="${esc(id)}" ${action !== "details" && disabled ? "disabled" : ""}>${this.t(label)}</button>`;
-    return `<div class="bcm-actions">${inDialog ? "" : button("details","details")}${admin ? `${button(item.valid ? "invalidate" : "restore",item.valid ? "invalidate" : "restore")}${item.can_approve ? button("approve","approve") : ""}${item.revision_status === "approved" ? button("revoke","revoke") : ""}${inDialog && item.can_reanalyze ? button("reanalyze","reanalyze") : ""}${inDialog && ["calibration","rest"].includes(kind) ? button(item.usage_approval_current ? "revoke-use" : "approve-use", item.usage_approval_current ? "revoke-use" : "approve-use") : ""}` : ""}</div>`;
+    const blocker = this.usageApprovalBlocker(item);
+    const button = (action, label, style = "secondary") => `<button class="bcm-btn ${style}" data-record-action="${action}" data-record-kind="${kind}" data-record-id="${esc(id)}" ${action !== "details" && (disabled || action === "approve-use" && blocker) ? "disabled" : ""}>${this.t(label)}</button>`;
+    const review = admin && inDialog && ["calibration","rest"].includes(kind);
+    const useActions = review ? `${!item.usage_approval_current ? button("approve-use","approve-use") : ""}${item.usage_approval !== "revoked" ? button("revoke-use","revoke-use") : ""}` : "";
+    return `<div class="bcm-actions">${inDialog ? "" : button("details","details")}${admin ? `${button(item.valid ? "invalidate" : "restore",item.valid ? "invalidate" : "restore")}${item.can_approve ? button("approve","approve") : ""}${item.revision_status === "approved" ? button("revoke","revoke") : ""}${inDialog && item.can_reanalyze ? button("reanalyze","reanalyze") : ""}${useActions}` : ""}</div>${review && blocker && item.usage_approval !== "revoked" ? `<p class="bcm-muted" data-approval-blocker>${this.t(`approvalBlocked_${blocker}`)}</p>` : ""}`;
   }
 
   async openMeasurement(kind, recordId, decision = null) {
@@ -1728,7 +1746,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     if (!d) return true;
     const rows = d.record_type === "rest" ? (this._state.rest_measurements || []) : d.record_type === "calibration" ? this._state.calibrations : this._state.idle_measurements;
     const liveRow = rows.find((item) => (item.calibration_id || item.measurement_id) === (d.calibration_id || d.measurement_id));
-    return Boolean(liveRow && ["valid","revision_status","current_setup_revision","current_battery_revision","analysis_revision","usage_reason","usage_revision","decision_fingerprint"].some((key) => liveRow[key] !== d[key]));
+    return Boolean(liveRow && ["valid","revision_status","current_setup_revision","current_battery_revision","analysis_revision","usage_reason","usage_revision","decision_fingerprint","usage_approval_block_reason"].some((key) => liveRow[key] !== d[key]));
   }
 
   meteringDecision(decision = {}) {
@@ -1758,7 +1776,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const active = this._state.session.mode !== "idle";
     const stale = this.measurementDetailStale();
     const reasonRequired = ["approve","revoke","approve-use","revoke-use"].includes(action);
-    const canConfirm = admin && !active && !this._busy && !stale && (!reasonRequired || this._decisionReason?.trim()) && (action !== "approve" || this._decisionConfirmed);
+    const canConfirm = admin && !active && !this._busy && !stale && (!reasonRequired || this._decisionReason?.trim()) && (action !== "approve" || this._decisionConfirmed) && (action !== "approve-use" || !this.usageApprovalBlocker(d));
     const actionHint = action === "invalidate" ? (calibration ? "invalidateCalibrationHint" : "invalidateIdleHint") : `${action}Hint`;
     const decision = action && admin ? `<section class="bcm-decision"><h3>${this.t(action)}</h3><p>${this.t(actionHint)}</p>${action === "approve" ? `${this.revisionComparison(d)}${this.revisionChanges(d)}<label class="bcm-equivalence"><input type="checkbox" data-equivalence ${this._decisionConfirmed ? "checked" : ""}>${this.t("equivalent")}</label>` : ""}${action !== "reanalyze" ? `<div class="bcm-field"><label for="bcm-decision-reason">${this.t("decisionReason")}${reasonRequired ? " *" : ""}</label><textarea id="bcm-decision-reason" data-decision-reason>${esc(this._decisionReason || "")}</textarea></div>` : ""}<div class="bcm-actions"><button class="bcm-btn ${action === "invalidate" ? "danger" : ""}" data-action="confirm-measurement" ${canConfirm ? "" : "disabled"}>${this.t(action)}</button><button class="bcm-btn secondary" data-action="cancel-decision" ${this._busy ? "disabled" : ""}>${this.t("cancel")}</button></div></section>` : "";
     if (kind === "rest") return this.renderRestDialog(d,header,error,decision,admin && !active && !stale);
@@ -1811,6 +1829,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     if (!d || !action || this._busy || !this._hass?.user?.is_admin) return;
     if (this._state.session.mode !== "idle") { this._error = this.t("activeSessionHint"); this.render(); return; }
     if (this.measurementDetailStale()) { this._error = this.t("staleDetail"); this.render(); return; }
+    if (action === "approve-use" && this.usageApprovalBlocker(d)) { this._error = this.t(`approvalBlocked_${this.usageApprovalBlocker(d)}`); this.render(); return; }
     const reason = (this._decisionReason || "").trim();
     if (["approve","revoke","approve-use","revoke-use"].includes(action) && !reason) { this._error = this.t("reasonRequired"); this.render(); return; }
     if (action === "approve" && !this._decisionConfirmed) { this._error = this.t("equivalentRequired"); this.render(); return; }
@@ -1954,7 +1973,7 @@ class BatteryChargeManagerPanel extends BcmBase {
     const decisionReady = () => {
       const button = this.shadowRoot.querySelector('[data-action="confirm-measurement"]');
       const requiresReason = ["approve","revoke","approve-use","revoke-use"].includes(this._recordDecision);
-      if (button) button.disabled = !this._hass?.user?.is_admin || this._busy || this._state.session.mode !== "idle" || this.measurementDetailStale() || (requiresReason && !this._decisionReason?.trim()) || (this._recordDecision === "approve" && !this._decisionConfirmed);
+      if (button) button.disabled = !this._hass?.user?.is_admin || this._busy || this._state.session.mode !== "idle" || this.measurementDetailStale() || (requiresReason && !this._decisionReason?.trim()) || (this._recordDecision === "approve" && !this._decisionConfirmed) || (this._recordDecision === "approve-use" && Boolean(this.usageApprovalBlocker(this._measurementDetail)));
     };
     this.shadowRoot.querySelector("[data-decision-reason]")?.addEventListener("input", (event) => { this._decisionReason = event.target.value; decisionReady(); });
     this.shadowRoot.querySelector("[data-equivalence]")?.addEventListener("change", (event) => { this._decisionConfirmed = event.target.checked; decisionReady(); });

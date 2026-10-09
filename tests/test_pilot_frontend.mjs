@@ -9,6 +9,35 @@ const {renderSessionChart}=await import(pathToFileURL(resolve('custom_components
 const Panel=customElements.get('battery-charge-manager-panel');
 function panel(){const p=new Panel();p._hass={language:'de',user:{is_admin:true}};p._state={session:{mode:'idle'},calibrations:[],idle_measurements:[],rest_measurements:[],setups:[],batteries:[],energy_mode:'power_reported',energy_basis:'gross'};return p;}
 
+test('pending invalid rest exposes do-not-use while explaining blocked approval',()=>{
+ const p=panel(), item={measurement_id:'r',valid:false,usage_approval:'pending',usage_approval_block_reason:'invalid_measurement'};
+ const html=p.recordActions(item,'rest',true,true);
+ assert.match(html,/<button[^>]*data-record-action="revoke-use"[^>]*>Nicht verwenden<\/button>/);
+ assert.doesNotMatch(html,/<button[^>]*data-record-action="revoke-use"[^>]*disabled/);
+ assert.match(html,/<button[^>]*data-record-action="approve-use"[^>]*disabled/);
+ assert.match(html,/Ungültige Messungen können nicht freigegeben werden/);
+});
+test('pending usable calibration offers both review decisions and revoked review has a final badge',()=>{
+ const p=panel(), item={calibration_id:'c',valid:true,usage_approval:'pending',usage_approval_block_reason:null};
+ const html=p.recordActions(item,'calibration',true,true);
+ assert.match(html,/data-record-action="approve-use"/);assert.match(html,/data-record-action="revoke-use"/);
+ assert.doesNotMatch(html,/disabled/);
+ const badge=p.usageBadge({...item,usage_approval:'revoked',usage_reason:'revoked'});
+ assert.match(badge,/Geprüft · nicht zur Verwendung freigegeben/);assert.doesNotMatch(badge,/ausstehend/);
+ assert.doesNotMatch(p.recordActions({...item,usage_approval:'revoked'},'calibration',true,true),/data-record-action="revoke-use"/);
+});
+test('do-not-use submits an explicit negative decision for an invalid pending measurement',async()=>{
+ const p=panel();p._measurementDetail={record_type:'rest',measurement_id:'r',valid:false,analysis_revision:1,usage_revision:2,decision_fingerprint:'trace',usage_approval:'pending'};
+ p._recordDecision='revoke-use';p._decisionReason='Only a test';const calls=[];p.call=async(c,args)=>calls.push([c,args]);
+ await p.confirmMeasurementDecision();assert.deepEqual(calls[0],['set_usage_approval',{record_type:'rest',record_id:'r',approved:false,reason:'Only a test',expected_analysis_revision:1,expected_fingerprint:'trace',expected_usage_revision:2}]);
+});
+test('rejected pilot review does not keep asking to review use in its completion banner',()=>{
+ const p=panel();
+ const html=p.completionBadge({completion_status:'pending_review',usage_approval:'revoked'});
+ assert.match(html,/Beendet · Messdaten erhalten/);assert.doesNotMatch(html,/Verwendung prüfen/);
+ assert.match(p.completionBadge({completion_status:'pending_review',usage_approval:'pending'}),/Verwendung prüfen/);
+});
+
 test('pilot source and gross or no-load-corrected basis are explicit settings',()=>{
  const html=panel().renderSettings(true);assert.match(html,/value="power_reported"/);assert.match(html,/data-form-value="energyBasis"/);assert.match(html,/value="gross"/);
 });

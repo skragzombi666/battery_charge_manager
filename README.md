@@ -1,6 +1,10 @@
 # Battery Charge Manager
 
-## Version 0.5.0: reported-power pilot measurements and explicit review
+## Version 0.5.1: complete a review with “Do not use”
+
+Pending calibration and full-battery-reference reviews now offer **Nicht verwenden / Do not use**, including invalid or aborted test runs. The decision is saved with its reason and the status becomes **Reviewed · not approved for use**. Unavailable approval is disabled with an explanation. Update in HACS, restart Home Assistant and reload the browser.
+
+### Pilot measurements introduced in 0.5.0
 
 An opt-in pilot source integrates reported active power, discloses held values and
 recording gaps, and uses separate full-battery residual references for reviewable
@@ -20,7 +24,7 @@ It is designed for batteries with their own charging electronics, such as USB-C 
 
 ## Current version
 
-**0.5.0**
+**0.5.1**
 
 ## Main interface
 
