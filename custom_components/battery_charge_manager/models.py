@@ -470,6 +470,11 @@ class CalibrationRecord:
     revision_approvals: list[dict[str, Any]] = field(default_factory=list)
     validity_history: list[dict[str, Any]] = field(default_factory=list)
     algorithm_version: str = ALGORITHM_VERSION
+    usage_approval: str = "pending"
+    approval_history: list[dict[str, Any]] = field(default_factory=list)
+    energy_basis: str = "no_load_corrected"
+    usb_comparison: dict[str, Any] = field(default_factory=dict)
+    pilot: dict[str, Any] = field(default_factory=dict)
     energy_source: str = "meter"
     source_decision: dict[str, Any] = field(default_factory=dict)
     metering_comparison: dict[str, Any] = field(default_factory=dict)
@@ -486,6 +491,11 @@ class CalibrationRecord:
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize calibration."""
         data: dict[str, Any] = {
+            "usage_approval": self.usage_approval,
+            "approval_history": self.approval_history,
+            "energy_basis": self.energy_basis,
+            "usb_comparison": self.usb_comparison,
+            "pilot": self.pilot,
             "trace_id": self.trace_id,
             "archived_sample_count": self.archived_sample_count,
             "origin_session_id": self.origin_session_id,
@@ -555,6 +565,11 @@ class CalibrationRecord:
     def from_dict(cls, data: dict[str, Any]) -> "CalibrationRecord":
         """Deserialize calibration."""
         return cls(
+            usage_approval=data.get("usage_approval", "pending"),
+            approval_history=[dict(item) for item in data.get("approval_history", [])],
+            energy_basis=data.get("energy_basis", "no_load_corrected"),
+            usb_comparison=dict(data.get("usb_comparison", {})),
+            pilot=dict(data.get("pilot", {})),
             trace_id=data.get("trace_id"),
             archived_sample_count=_int_or(data.get("archived_sample_count"), 0),
             origin_session_id=data.get("origin_session_id"),
@@ -680,6 +695,7 @@ class ChargeSession:
     requested_duration_minutes: float | None = None
     auto_min_minutes: float | None = None
     auto_max_minutes: float | None = None
+    pilot: dict[str, Any] = field(default_factory=dict)
     phase_tracking: dict[str, Any] = field(default_factory=dict)
     metering: dict[str, Any] = field(default_factory=dict)
     energy_source: str = "meter"
@@ -702,6 +718,7 @@ class ChargeSession:
     def as_dict(self, *, include_samples: bool = True) -> dict[str, Any]:
         """Serialize session."""
         data: dict[str, Any] = {
+            "pilot": self.pilot,
             "trace_id": self.trace_id,
             "archived_sample_count": self.archived_sample_count,
             "completion_record_id": self.completion_record_id,
@@ -774,6 +791,7 @@ class ChargeSession:
             data.get("gross_energy_wh", data.get("delivered_energy_wh", 0.0))
         )
         return cls(
+            pilot=dict(data.get("pilot", {})),
             trace_id=data.get("trace_id"),
             archived_sample_count=_int_or(data.get("archived_sample_count"), 0),
             completion_record_id=data.get("completion_record_id"),

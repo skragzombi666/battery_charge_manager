@@ -153,6 +153,13 @@ def compare(
     report['span_seconds'] = max(0, span)
     report['power_estimate_net_wh'] = max(0, last.power_estimate_wh - report['estimate_idle_energy_wh']) if last.power_estimate_wh is not None else None
     report['estimate_complete'] = bool(span > 0 and (last.metering_quality.get('estimate_covered_seconds') or 0) >= span * .99)
+    report['unknown_seconds'] = max(0.0, span - estimate_covered)
+    report['held_seconds'] = max(0.0, estimate_covered - covered)
+    report['held_energy_wh'] = max(0.0, (last.power_estimate_wh or 0) - (last.power_energy_wh or 0))
+    report['reported_complete'] = bool(
+        span > 0 and report['unknown_seconds'] < 1e-6
+        and not last.metering_quality.get('gaps', 0)
+        and finite(last.power_estimate_wh))
     if last.power_energy_wh is None:
         return report
     report['power_net_wh'] = max(0, last.power_energy_wh - report['power_idle_energy_wh'])

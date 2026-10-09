@@ -2,7 +2,7 @@
 from datetime import datetime
 from .metering import finite, MAX_GAP_SECONDS
 
-MODES = ('auto', 'meter', 'power')
+MODES = ('auto', 'meter', 'power', 'power_reported')
 
 
 def choose(report: dict, mode: str) -> dict:
@@ -15,6 +15,11 @@ def choose(report: dict, mode: str) -> dict:
                   and finite(power) and power > 0)
     result = dict(mode=mode, source=None, reason='incomplete_power_data',
                   absolute_accuracy_known=False)
+    if mode == 'power_reported':
+        value = report.get('power_estimate_net_wh')
+        if report.get('reported_complete') and finite(value) and value > 0:
+            result.update(source='power_reported', reason='reported_power_estimate')
+        return result
     if mode == 'power':
         if good_power:
             result.update(source='power', reason='forced_power')
