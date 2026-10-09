@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import unittest
+from pilot_fixtures import reviewed
 
 from test_core import (
     BatteryChargeManager, BatteryType, CalibrationRecord, ChargerSetup,
@@ -28,6 +29,7 @@ class MeasurementHistoryTests(unittest.IsolatedAsyncioTestCase):
             record_id, "setup", 1, self.setup.snapshot(), "battery", 1,
             self.battery.snapshot(), 1, ["A"], net_energy_wh=3.0, **kwargs,
         )
+        reviewed(self.manager, record)
         self.manager.calibrations[record_id] = record
         return record
 
@@ -59,6 +61,8 @@ class MeasurementHistoryTests(unittest.IsolatedAsyncioTestCase):
         self.setup.revision = 2
         self.battery.revision = 4
         await self.approve("calibration", "cal")
+        self.assertEqual(self.manager.calibration_summary("setup", "battery", 1)["record_ids"], [])
+        reviewed(self.manager, self.manager.calibrations["cal"])
         self.assertEqual(self.manager.calibration_summary("setup", "battery", 1)["record_ids"], ["cal"])
         self.assertEqual(self.manager.calibration_summary("setup", "battery", 2)["record_ids"], [])
         self.battery.revision = 5
@@ -167,6 +171,9 @@ class MeasurementHistoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.analysis_revision, 2)
         self.assertEqual(record.setup_revision, 1)
         self.assertAlmostEqual(record.net_energy_wh, 3.0)
+        self.assertEqual(record.usage_approval, "pending")
+        self.assertEqual(self.manager.calibration_summary("setup", "battery", 1)["record_ids"], [])
+        reviewed(self.manager, record)
         self.assertEqual(self.manager.calibration_summary("setup", "battery", 1)["record_ids"], ["cal"])
 
     async def test_restoring_reliable_idle_reprocesses_pending_calibration(self):

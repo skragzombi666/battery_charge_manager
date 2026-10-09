@@ -35,6 +35,10 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
         ws_start_calibration,
         ws_finish_calibration,
         ws_start_idle_measurement,
+        ws_prepare_rest_reference,
+        ws_confirm_rest_reference,
+        ws_set_usage_approval,
+        ws_set_usb_comparison,
         ws_stop,
         ws_set_measurement_validity,
         ws_get_measurement,
@@ -266,7 +270,8 @@ async def ws_select(
     {
         vol.Required("type"): f"{DOMAIN}/set_settings",
         vol.Required("max_session_hours"): vol.Coerce(float),
-        vol.Optional("energy_mode"): vol.In(["auto", "meter", "power"]),
+        vol.Optional("energy_mode"): vol.In(["auto", "meter", "power", "power_reported"]),
+        vol.Optional("energy_basis"): vol.In(["gross", "no_load_corrected"]),
     }
 )
 @websocket_api.async_response
@@ -279,6 +284,8 @@ async def ws_set_settings(
     manager = _manager(hass)
     try:
         await manager.async_set_max_session_hours(msg["max_session_hours"])
+        if "energy_basis" in msg:
+            await manager.async_set_energy_basis(msg["energy_basis"])
         if "energy_mode" in msg:
             await manager.async_set_energy_mode(msg["energy_mode"])
     except HomeAssistantError as err:
@@ -395,7 +402,7 @@ async def ws_stop(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/set_measurement_validity",
-        vol.Required("record_type"): vol.In(["idle", "calibration"]),
+        vol.Required("record_type"): vol.In(["idle", "calibration", "rest"]),
         vol.Required("record_id"): str,
         vol.Required("valid"): bool,
         vol.Optional("reason", default=""): str,
@@ -425,7 +432,7 @@ async def ws_set_measurement_validity(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/get_measurement",
-        vol.Required("record_type"): vol.In(["idle", "calibration"]),
+        vol.Required("record_type"): vol.In(["idle", "calibration", "rest"]),
         vol.Required("record_id"): str,
     }
 )
@@ -551,7 +558,7 @@ async def ws_set_calibration_endpoint(hass, connection, msg) -> None:
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required('type'): f'{DOMAIN}/get_raw_samples',
-    vol.Required('record_type'): vol.In(['calibration','idle','session']),
+    vol.Required('record_type'): vol.In(['calibration','idle','rest','session']),
     vol.Required('record_id'): str,
     vol.Optional('offset', default=0): vol.All(int,vol.Range(min=0)),
     vol.Optional('limit', default=500): vol.All(int,vol.Range(min=1,max=1000)),
@@ -566,3 +573,71 @@ async def ws_get_raw_samples(hass,connection,msg) -> None:
         _send_error(connection,msg,err)
         return
     connection.send_result(msg['id'],result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required('type'): f'{DOMAIN}/prepare_rest_reference'})
+@websocket_api.async_response
+async def ws_prepare_rest_reference(hass, connection, msg) -> None:
+    """Power on and retain the full-battery preparation phase."""
+    try:
+        await _manager(hass).async_prepare_rest_reference()
+    except HomeAssistantError as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg['id'])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required('type'): f'{DOMAIN}/confirm_rest_reference'})
+@websocket_api.async_response
+async def ws_confirm_rest_reference(hass, connection, msg) -> None:
+    """Confirm that repower top-up ended; begin warm-up plus measurement."""
+    try:
+        await _manager(hass).async_confirm_rest_reference()
+    except HomeAssistantError as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg['id'])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required('type'): f'{DOMAIN}/set_usage_approval',
+    vol.Required('record_type'): vol.In(['calibration', 'rest']),
+    vol.Required('record_id'): str,
+    vol.Required('approved'): bool,
+    vol.Required('reason'): str,
+    vol.Required('expected_fingerprint'): str,
+    vol.Required('expected_analysis_revision'): vol.All(int, vol.Range(min=1)),
+})
+@websocket_api.async_response
+async def ws_set_usage_approval(hass, connection, msg) -> None:
+    """Record a human decision about use of this exact analysis."""
+    try:
+        await _manager(hass).async_set_usage_approval(msg['record_type'], msg['record_id'],
+            msg['approved'], msg['reason'], msg['expected_analysis_revision'], actor_id=connection.user.id, expected_fingerprint=msg['expected_fingerprint'])
+    except (HomeAssistantError, ValueError, TypeError) as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg['id'])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required('type'): f'{DOMAIN}/set_usb_comparison',
+    vol.Required('record_id'): str,
+    vol.Required('energy_wh'): vol.Coerce(float),
+    vol.Required('reason'): str,
+    vol.Required('expected_analysis_revision'): vol.All(int, vol.Range(min=1)),
+})
+@websocket_api.async_response
+async def ws_set_usb_comparison(hass, connection, msg) -> None:
+    """Store the independently observed full-run USB end energy."""
+    try:
+        await _manager(hass).async_set_usb_comparison(msg['record_id'], msg['energy_wh'],
+            msg['reason'], msg['expected_analysis_revision'], actor_id=connection.user.id)
+    except (HomeAssistantError, ValueError, TypeError) as err:
+        _send_error(connection, msg, err)
+        return
+    connection.send_result(msg['id'])

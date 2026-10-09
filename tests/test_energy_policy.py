@@ -1,3 +1,4 @@
+from pilot_fixtures import reviewed
 import unittest
 from datetime import datetime, timedelta, timezone
 from test_core import MeasurementSample
@@ -78,8 +79,11 @@ class EnergyModeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.calibrate(count=1)
         self.assertEqual(self.manager.calibration_summary('s','b',1)['median_net_energy_wh'],5.5)
         await self.manager.async_set_energy_mode('meter')
+        self.assertIsNone(self.manager.calibration_summary('s','b',1)['median_net_energy_wh'])
+        reviewed(self.manager, self.manager.calibrations['0'])
         self.assertEqual(self.manager.calibration_summary('s','b',1)['median_net_energy_wh'],6)
         await self.manager.async_set_energy_mode('power')
+        reviewed(self.manager, self.manager.calibrations['0'])
         self.assertEqual(self.manager.calibration_summary('s','b',1)['median_net_energy_wh'],5.5)
         self.manager.calibrations['0'].metering_comparison['power_eligible']=False
         self.assertIsNone(self.manager.calibration_summary('s','b',1)['median_net_energy_wh'])
@@ -90,6 +94,7 @@ class EnergyModeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         first.session_started_at='2026-09-13T00:00:00+00:00'
         second.session_started_at='2026-09-14T00:00:00+00:00'
         second.metering_comparison['meter_step_wh']=.01
+        reviewed(self.manager, second)
         summary=self.manager.calibration_summary('s','b',1)
         self.assertEqual(summary['energy_source'],'meter')
         self.assertEqual(summary['record_ids'],['1'])
@@ -211,6 +216,7 @@ class EnergyModeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.manager._select_calibration_energy(record,'auto')
         self.assertEqual(record.net_energy_wh,5.5)
         await self.manager.async_set_energy_mode('power')
+        reviewed(self.manager, self.manager.calibrations['0'])
         self.assertEqual(self.manager.calibration_summary('s','b',1)['median_net_energy_wh'],5.5)
         self.assertTrue(self.manager._measurement_row(record)['used'])
 
@@ -219,6 +225,7 @@ class EnergyModeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.manager.calibrations['0'].metering_comparison={}
         self.manager.calibrations['1'].confidence='low'
         await self.manager.async_set_energy_mode('power')
+        reviewed(self.manager, self.manager.calibrations['1'])
         summary=self.manager.calibration_summary('s','b',1)
         self.assertEqual(summary['record_ids'],['1'])
         self.assertEqual(summary['median_net_energy_wh'],5.5)

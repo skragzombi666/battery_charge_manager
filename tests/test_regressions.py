@@ -154,7 +154,8 @@ class Release011RegressionTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
         self.assertEqual(summary["pending_count"], 0)
-        self.assertAlmostEqual(summary["median_net_energy_wh"], 3.0)
+        self.assertIsNone(summary["median_net_energy_wh"], "Reanalysis needs explicit use approval")
+        self.assertEqual(record.usage_approval, "pending")
 
     def test_frontend_state_exposes_bounded_live_trace_and_idle_assessment(self) -> None:
         start = datetime(2026, 9, 7, 8, 0, tzinfo=timezone.utc)

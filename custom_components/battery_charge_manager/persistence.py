@@ -13,7 +13,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .archive import RawArchive
 from .const import ALGORITHM_VERSION, DATA_SCHEMA_VERSION, DOMAIN
-from .models import CalibrationRecord, ChargerSetup, IdleMeasurement, MeasurementSample
+from .models import CalibrationRecord, ChargerSetup, ChargeSession, IdleMeasurement, MeasurementSample
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,6 +125,8 @@ class ArchivePersistence:
             'target_percent': self.target_percent,
             'max_session_hours': self.max_session_hours,
             'energy_mode': self.energy_mode,
+            'energy_basis': self.energy_basis,
+            'rest_measurements': [r.as_dict(include_samples=include_samples) for r in self.rest_measurements.values()],
         }
 
     async def _async_persist(self) -> None:
@@ -135,7 +137,7 @@ class ArchivePersistence:
         # New records share the run's immutable trace; legacy imported records
         # already have their own immutable trace. No historical reread/rewrite.
         try:
-            for records, prefix in ((self.idle_measurements, 'idle'), (self.calibrations, 'calibration')):
+            for records, prefix in ((self.idle_measurements, 'idle'), (self.calibrations, 'calibration'), (self.rest_measurements, 'rest')):
                 for key, record in records.items():
                     if not record.trace_id:
                         record.trace_id = f'{prefix}:{key}'
@@ -151,12 +153,15 @@ class ArchivePersistence:
             raise HomeAssistantError('Measurement metadata could not be saved. Check storage.') from err
         # Release completed historical curves. The current/last run remains a
         # separate cache; its existence is never the only retained copy.
-        for record in (*self.calibrations.values(), *self.idle_measurements.values()):
+        for record in (*self.calibrations.values(), *self.idle_measurements.values(), *self.rest_measurements.values()):
             if record.trace_id and record.archived_sample_count:
                 record.samples = []
 
     def _recover_attempt(self, history: dict) -> CalibrationRecord | None:
         """Add an excluded view of a retained calibration; never alter history."""
+        if history.get('mode') == 'rest_measuring':
+            self._rest_from_session(ChargeSession.from_dict(history.get('session')))
+            return None
         if history.get('mode') == 'idle_measuring':
             self._recover_idle_attempt(history)
             return None
@@ -203,6 +208,8 @@ class ArchivePersistence:
             samples=[MeasurementSample.from_dict(p) for p in raw.get('samples', [])],
             valid=False, invalid_reason=reason, confidence='low',
             completion_status='aborted' if not history.get('valid') else 'recovered_unreviewed', calibration_eligible=False,
+            pilot=deepcopy(raw.get('pilot', {})), energy_basis=raw.get('pilot', {}).get('energy_basis', 'no_load_corrected'),
+            energy_source=raw.get('energy_source', 'meter'),
             end_method='aborted', source_decision={'source': None, 'usable': False, 'reason': 'aborted'},
             algorithm_version=ALGORITHM_VERSION,
         )
@@ -240,10 +247,10 @@ class ArchivePersistence:
         self.idle_measurements[r.measurement_id] = r
 
     def _recover_attempts(self) -> bool:
-        before = len(self.calibrations)+len(self.idle_measurements)
+        before = len(self.calibrations)+len(self.idle_measurements)+len(self.rest_measurements)
         for history in self.charge_history:
             self._recover_attempt(history)
-        return len(self.calibrations)+len(self.idle_measurements) != before
+        return len(self.calibrations)+len(self.idle_measurements)+len(self.rest_measurements) != before
 
     async def async_measurement_details(self, record_type: str, record_id: str) -> dict:
         record = self._measurement(record_type, record_id)
@@ -315,6 +322,7 @@ class ArchivePersistence:
                        if key not in {'analysis_history', 'validity_history', 'revision_approvals', 'comment_history'}}
                 old.update(endpoint_reason=reason.strip(), endpoint_actor=actor_id,
                            replaced_at=self._now_iso(), requested_endpoint_at=endpoint_at)
+                self._invalidate_usage(record, "Charge endpoint changed")
                 record.analysis_history.append(old)
                 record.charge_finished_at = endpoint.timestamp
                 record.charge_duration_seconds = self._seconds_between(record.charge_started_at or record.switch_on_at,
@@ -327,8 +335,11 @@ class ArchivePersistence:
                 record.last_analyzed_at = self._now_iso()
                 record.algorithm_version = ALGORITHM_VERSION
                 record.metering_comparison = metering.compare(points, endpoint.timestamp,
-                    record.idle_baseline_power_w or 0, record.switch_on_at or record.session_started_at)
+                    record.idle_baseline_power_w or 0, points[0].timestamp if record.pilot else record.switch_on_at or record.session_started_at)
                 self._select_calibration_energy(record, record.source_decision.get('mode', self.energy_mode))
+                if record.energy_source == 'power_reported' and record.completion_status in ('pending_review', 'completed'):
+                    record.calibration_eligible = bool(record.valid and record.switch_off_at and record.source_decision.get('usable'))
+                    record.completion_status = 'completed' if record.calibration_eligible else 'pending_review'
                 if record.calibration_eligible is False:
                     record.source_decision['usable'] = False
                 record.analysis_summary = analysis.energy_segments(points, endpoint.timestamp,

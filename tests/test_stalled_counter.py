@@ -96,6 +96,8 @@ class StalledCounterCompletionTests(unittest.IsolatedAsyncioTestCase):
         parallel.ParallelManagerTests.calibrate(self, count=1)
         record = self.manager.calibrations['0']
         record.metering_comparison.update(meter_gross_wh=0, meter_net_wh=0, meter_step_wh=None)
+        from pilot_fixtures import reviewed
+        reviewed(self.manager, record)
         self.prepare()
         self.assertEqual(self.manager.calibration_summary('s', 'b', 1)['median_net_energy_wh'], 5.5)
         self.manager.session.metering['power_wh'] = 8.3

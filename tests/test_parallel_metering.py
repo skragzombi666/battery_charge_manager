@@ -156,6 +156,10 @@ class ParallelManagerTests(unittest.IsolatedAsyncioTestCase):
                 metering_comparison={'power_eligible': True, 'meter_net_wh': 6,
                     'power_net_wh': 5.5, 'meter_step_wh': 1, 'power_step_wh': .02})
 
+        from pilot_fixtures import reviewed
+        for record in self.manager.calibrations.values():
+            reviewed(self.manager, record)
+
     async def test_selected_calibration_and_live_target_use_same_source(self):
         self.calibrate()
         summary = self.manager.calibration_summary('s', 'b', 1)

@@ -61,3 +61,9 @@ class RestReferenceTests(unittest.TestCase):
         samples[30].interval_quality = {}
         del samples[20:25]
         self.assertNotEqual(rest_reference.suggest(samples, reference)['status'], 'suggested')
+
+    def test_gap_in_partial_window_immediately_withdraws_proposal(self):
+        reference = {'eligible': True, 'upper_power_w': .13, 'tolerance_w': .03}
+        samples = points([1]*10 + [.1]*41)
+        samples.append(MeasurementSample((datetime.fromisoformat(samples[-1].timestamp)+timedelta(seconds=170)).isoformat(), power_w=.1))
+        self.assertNotEqual(rest_reference.suggest(samples, reference)['status'], 'suggested')

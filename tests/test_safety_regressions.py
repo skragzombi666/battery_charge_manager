@@ -141,6 +141,8 @@ class SafetyRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.manager.calibrations["cal"] = CalibrationRecord(
             "cal", "setup", 1, {}, "battery", 1, {}, 1, ["A"], net_energy_wh=3,
         )
+        from pilot_fixtures import reviewed
+        reviewed(self.manager, self.manager.calibrations["cal"])
         with self.assertRaisesRegex(Exception, "idle measurement"):
             await self.manager.async_start_charge()
         self.assertEqual(self.commands, [])

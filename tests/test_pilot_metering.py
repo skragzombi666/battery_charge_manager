@@ -28,6 +28,7 @@ class PilotMeteringTests(unittest.TestCase):
         self.assertEqual(energy_policy.choose(report, 'power_reported')['source'], 'power_reported')
         self.assertAlmostEqual(report['power_estimate_gross_wh'], 2)
         self.assertEqual(report['held_seconds'], 3600)
+        self.assertEqual(report['longest_held_seconds'], 3600)
         self.assertFalse(report['power_complete'])
         self.assertEqual(energy_policy.choose(report, 'power')['source'], None)
 

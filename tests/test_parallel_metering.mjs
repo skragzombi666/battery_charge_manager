@@ -57,6 +57,6 @@ test('settings show all modes, preserve persisted selection, and submit the new 
  p.shadowRoot.getElementById=()=>({value:'12',min:'1',max:'48',dataset:{formValue:'maxSession'}});
  let submitted;p.call=async(command,args)=>{submitted={command,args};};
  await p.handleAction('save-settings');
- assert.deepEqual(submitted,{command:'set_settings',args:{max_session_hours:12,energy_mode:'power'}});
+ assert.deepEqual(submitted,{command:'set_settings',args:{max_session_hours:12,energy_mode:'power',energy_basis:'gross'}});
  assert.doesNotMatch(p.renderSettings(false),/data-action="save-settings"/);
 });

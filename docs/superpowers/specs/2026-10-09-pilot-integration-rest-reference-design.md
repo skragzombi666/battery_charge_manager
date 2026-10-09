@@ -1,6 +1,6 @@
 # Pilot-Update 0.5.0: Leistungsintegration, Vollakku-Referenz und Freigabe
 
-Status: konkreter Entwurf zur fachlichen Prüfung; noch nicht implementiert.
+Status: vom Nutzer freigegeben; Umsetzung und Abnahme für Version 0.5.0.
 Datum: 9. Oktober 2026. Grundlage: Repository-Stand 0.4.2.
 
 ## Ziel und vereinbarte Rahmenbedingungen

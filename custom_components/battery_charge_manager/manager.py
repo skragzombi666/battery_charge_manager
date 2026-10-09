@@ -99,6 +99,8 @@ from .models import (
     MeasurementSample,
 )
 from .persistence import ArchivePersistence, serialized_command
+from .pilot import PilotWorkflow
+from .pilot_models import RestMeasurement
 from .history import (
     Measurement, chart_samples, current_approval, revision_differences, revision_status,
 )
@@ -106,7 +108,7 @@ from .history import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class BatteryChargeManager(ArchivePersistence):
+class BatteryChargeManager(PilotWorkflow, ArchivePersistence):
     """Manage setups, batteries, measurements, calibrations, and charging."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -125,6 +127,8 @@ class BatteryChargeManager(ArchivePersistence):
         self.charge_history: list[dict[str, Any]] = []
         self.session = ChargeSession()
         self.energy_mode = "auto"
+        self.energy_basis = "gross"
+        self.rest_measurements: dict[str, RestMeasurement] = {}
         self.selected_setup_id: str | None = None
         self.selected_battery_id: str | None = None
         self.selected_quantity = 1
@@ -225,6 +229,9 @@ class BatteryChargeManager(ArchivePersistence):
             for item in data.get("calibrations", [])
             if item.get("calibration_id")
         }
+        self.rest_measurements = {item["measurement_id"]: RestMeasurement.from_dict(item)
+                                  for item in data.get("rest_measurements", [])}
+        self.energy_basis = data.get("energy_basis", "gross")
         self.charge_history = [dict(item) for item in data.get("charge_history", [])]
         self.session = ChargeSession.from_dict(data.get("session"))
         self.energy_mode = data.get("energy_mode", "auto")
@@ -330,7 +337,7 @@ class BatteryChargeManager(ArchivePersistence):
                 "Charging switch was not confirmed on after restart"
             )
             return
-        if self.session.energy_source == "power":
+        if self.session.energy_source in {"power", "power_reported"}:
             await self._async_abort_session("Power integration interrupted by restart")
             return
         self.session.restart_count += 1
@@ -373,6 +380,7 @@ class BatteryChargeManager(ArchivePersistence):
             },
             "setups": [item.as_dict() for item in self.setups.values()],
             "batteries": [item.as_dict() for item in self.batteries.values()],
+            "rest_measurements": [item.as_dict() for item in self.rest_measurements.values()],
             "idle_measurements": [item.as_dict() for item in self.idle_measurements.values()],
             "calibrations": [item.as_dict() for item in self.calibrations.values()],
             "current_usage": {
@@ -385,7 +393,7 @@ class BatteryChargeManager(ArchivePersistence):
                          "selected_battery_id": self.selected_battery_id,
                          "selected_quantity": self.selected_quantity,
                          "target_percent": self.target_percent,
-                         "max_session_hours": self.max_session_hours, "energy_mode": self.energy_mode},
+                         "max_session_hours": self.max_session_hours, "energy_mode": self.energy_mode, "energy_basis": self.energy_basis},
         })
 
     @serialized_command
@@ -707,6 +715,10 @@ class BatteryChargeManager(ArchivePersistence):
         self._notify()
 
     def _record_source_choice(self, record: CalibrationRecord) -> dict:
+        if self.energy_mode == "power_reported" and (record.energy_source != "power_reported" or record.energy_basis != self.energy_basis):
+            return {"source": None, "reason": "source_or_basis_review_required"}
+        if self.energy_mode != "power_reported" and record.energy_source == "power_reported":
+            return {"source": None, "reason": "source_or_basis_review_required"}
         if record.calibration_eligible is False:
             return {"mode": self.energy_mode, "source": None,
                     "reason": record.completion_status if record.completion_status != "completed" else "incomplete_power_data"}
@@ -720,6 +732,15 @@ class BatteryChargeManager(ArchivePersistence):
     def _select_calibration_energy(self, record: CalibrationRecord, mode: str) -> None:
         """Keep raw traces and set source-matched derived record totals."""
         report = record.metering_comparison
+        if mode == "power_reported":
+            choice = energy_policy.choose(report, mode)
+            record.energy_source = "power_reported"
+            record.source_decision = {**choice, "usable": bool(choice["source"]), "energy_basis": record.energy_basis, "policy_version": 2}
+            record.gross_energy_wh = report.get("power_estimate_gross_wh") or 0
+            record.net_energy_wh = report.get("power_estimate_net_wh") or 0
+            record.idle_energy_wh = record.gross_energy_wh - record.net_energy_wh
+            record.confidence = CONFIDENCE_LOW
+            return
         choice = energy_policy.choose(report, mode)
         record.source_decision = {**choice, "policy_version": 1,
                                   "usable": choice["source"] is not None}
@@ -764,6 +785,7 @@ class BatteryChargeManager(ArchivePersistence):
             "previous_valid": record.valid, "reason": reason.strip(),
             "previous_reason": record.invalid_reason, "actor_id": actor_id,
         })
+        self._invalidate_usage(record, "Measurement validity changed")
         record.valid = bool(valid)
         record.invalid_reason = "" if valid else reason.strip()
         if valid:
@@ -773,9 +795,9 @@ class BatteryChargeManager(ArchivePersistence):
 
     def _measurement(self, record_type: str, record_id: str) -> Measurement:
         """Resolve one retained record by explicit kind and identity."""
-        if record_type not in {"idle", "calibration"}:
+        if record_type not in {"idle", "calibration", "rest"}:
             raise HomeAssistantError("Unknown record type")
-        records = self.idle_measurements if record_type == "idle" else self.calibrations
+        records = {"idle": self.idle_measurements, "calibration": self.calibrations, "rest": self.rest_measurements}[record_type]
         record = records.get(record_id)
         if record is None:
             raise HomeAssistantError("Measurement record not found")
@@ -853,6 +875,11 @@ class BatteryChargeManager(ArchivePersistence):
         idle = self.idle_summary(record.setup_id)
         await self._async_hydrate(record)
         try:
+            if self.energy_mode == "power_reported" or record.energy_source == "power_reported":
+                self._reanalyze_pilot(record, actor_id)
+                await self._async_save()
+                self._notify()
+                return
             if not record.samples or not idle["usable"]:
                 raise HomeAssistantError("A stored trace and reliable current idle measurement are required")
             self._apply_idle_correction(
@@ -882,6 +909,8 @@ class BatteryChargeManager(ArchivePersistence):
         idle_summary: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Expose the operational selection, including why a record is excluded."""
+        if isinstance(record, RestMeasurement):
+            return self._rest_row(record)
         calibration = isinstance(record, CalibrationRecord)
         record_id = record.calibration_id if calibration else record.measurement_id
         setup = self.setups.get(record.setup_id)
@@ -906,6 +935,8 @@ class BatteryChargeManager(ArchivePersistence):
             reason = "invalid_idle_reference"
         elif not calibration and included and not idle["usable"]:
             reason = "unstable_baseline" if idle["quality"] == QUALITY_UNSTABLE else "provisional_baseline"
+        elif calibration and not self._usage_current(record):
+            reason = "pending_review"
         elif used:
             reason = "used"
         elif calibration and self._record_source_choice(record).get("source") != self.calibration_summary(record.setup_id, record.battery_id, record.quantity).get("energy_source"):
@@ -915,6 +946,9 @@ class BatteryChargeManager(ArchivePersistence):
         else:
             reason = "lower_confidence" if calibration else "unreliable"
         row = record.as_dict(include_samples=False)
+        if calibration:
+            row["usage_approval_current"] = self._usage_current(record)
+            row["decision_fingerprint"] = self._decision_fingerprint(record)
         # Historical payloads are fetched once on demand, not in every live update.
         for key in ("setup_snapshot", "battery_snapshot", "revision_approvals", "validity_history", "analysis_history", "comment_history"):
             row.pop(key, None)
@@ -932,6 +966,8 @@ class BatteryChargeManager(ArchivePersistence):
     def measurement_details(self, record_type: str, record_id: str) -> dict[str, Any]:
         """Load metrics, provenance, decisions and a bounded historical curve."""
         record = self._measurement(record_type, record_id)
+        if isinstance(record, RestMeasurement):
+            return {**self._rest_row(record), "chart_samples": chart_samples(record.samples)}
         setup = self.setups.get(record.setup_id)
         battery = self.batteries.get(record.battery_id) if isinstance(record, CalibrationRecord) else None
         detail = record.as_dict(include_samples=False)
@@ -951,7 +987,7 @@ class BatteryChargeManager(ArchivePersistence):
             detail["trace_end_at"] = record.samples[-1].timestamp if record.samples else None
             detail["invalid_idle_reference_ids"] = self._invalid_idle_references(record)
             detail["can_reanalyze"] = bool(
-                record.valid and record.samples and idle["usable"]
+                record.valid and record.samples and (idle["usable"] or self.energy_mode == "power_reported")
                 and self._record_revision_status(record) in {"native", "approved"}
             )
             detail["idle_sources"] = [
@@ -987,7 +1023,7 @@ class BatteryChargeManager(ArchivePersistence):
             raise HomeAssistantError(
                 "No current calibration exists for this battery, setup, and quantity"
             )
-        if not self.idle_summary(setup.setup_id)["usable"]:
+        if self.energy_mode != "power_reported" and not self.idle_summary(setup.setup_id)["usable"]:
             raise HomeAssistantError("A reliable, consistent current idle measurement is required for charging")
         target_energy_wh = float(median_wh) * self.target_percent / 100.0
         await self._async_begin_session(
@@ -1005,14 +1041,15 @@ class BatteryChargeManager(ArchivePersistence):
         self._ensure_idle()
         setup = self._require_setup()
         battery = self._require_battery()
-        if self.energy_mode == "power" and not setup.power_sensor:
+        if self.energy_mode in {"power", "power_reported"} and not setup.power_sensor:
             raise HomeAssistantError("Power integration requires a configured active-power sensor")
         await self._async_begin_session(
             mode=SESSION_CALIBRATING,
             setup=setup,
             battery=battery,
             target_energy_wh=None,
-            source_decision={"mode": self.energy_mode, "end_policy": "observed_power"},
+            source_decision={"mode": self.energy_mode, "end_policy": "observed_power",
+                             **({"source": "power_reported"} if self.energy_mode == "power_reported" else {})},
             comment=comment,
             comment_actor_id=actor_id,
         )
@@ -1095,6 +1132,7 @@ class BatteryChargeManager(ArchivePersistence):
     def _apply_idle_correction(self, record: CalibrationRecord, *, baseline: float,
                                measurement_ids: list[str], quality: str) -> None:
         """Replace only derived analysis; never replace even the in-memory raw trace."""
+        self._invalidate_usage(record, "Analysis changed")
         raw = record.samples
         try:
             self._apply_idle_correction_values(record, baseline=baseline,
@@ -1274,10 +1312,12 @@ class BatteryChargeManager(ArchivePersistence):
         comment_actor_id: str | None = None,
     ) -> None:
         """Validate hardware, create a persistent session, and switch on."""
-        self._validate_runtime_setup(setup)
+        reported = (source_decision or {}).get("source") == "power_reported"
+        pilot = self._pilot_snapshot(mode, setup, battery, source_decision or {}) if reported else {}
+        self._validate_runtime_setup(setup, require_energy=not reported)
         energy_state = self.hass.states.get(setup.energy_sensor)
         raw_energy = self._energy_state_to_wh(energy_state)
-        if raw_energy is None:
+        if raw_energy is None and not reported:
             raise HomeAssistantError("Configured energy sensor has no usable value")
         now = self._now_iso()
         idle_summary = (
@@ -1285,6 +1325,8 @@ class BatteryChargeManager(ArchivePersistence):
             if mode == SESSION_IDLE_MEASURING
             else self.idle_summary(setup.setup_id)
         )
+        if reported:
+            idle_summary = pilot["idle_reference"]
         has_reliable_idle = bool(idle_summary.get("usable"))
         idle_baseline = (
             float(idle_summary["baseline_power_w"])
@@ -1299,6 +1341,7 @@ class BatteryChargeManager(ArchivePersistence):
         )
         self.session = ChargeSession(
             session_id=uuid4().hex,
+            pilot=pilot,
             comment=comment,
             comment_history=([{"changed_at": now, "actor_id": comment_actor_id,
                                "previous_comment": "", "comment": comment}] if comment else []),
@@ -1334,6 +1377,8 @@ class BatteryChargeManager(ArchivePersistence):
             auto_min_minutes=auto_min_minutes,
             auto_max_minutes=auto_max_minutes,
         )
+        if reported and pilot["energy_basis"] == "gross":
+            self.session.idle_baseline_power_w = 0.0
         self.session.setup_snapshot = setup.snapshot()
         self.session.battery_snapshot = battery.snapshot() if battery else {}
         self.session.trace_id = f"session:{self.session.session_id}" if self.archive else None
@@ -1565,7 +1610,8 @@ class BatteryChargeManager(ArchivePersistence):
                 return
             energy_state = read_state(setup.energy_sensor)
             raw_energy = self._energy_state_to_wh(energy_state)
-            if raw_energy is None:
+            reported = self.session.energy_source == "power_reported"
+            if raw_energy is None and not reported:
                 await self._async_abort_session("Energy sensor became unavailable or invalid")
                 return
             switch_state = read_state(setup.switch_entity)
@@ -1598,13 +1644,16 @@ class BatteryChargeManager(ArchivePersistence):
             now = observations.parse_time(captured["received_at"]) if captured else dt_util.utcnow()
             now_iso = now.isoformat()
             previous_raw = self.session.last_raw_energy_wh
-            if previous_raw is None:
+            if previous_raw is None or raw_energy is None:
                 delta_wh = 0.0
             else:
                 delta_wh = raw_energy - previous_raw
-            if delta_wh < -1e-9 or not math.isfinite(delta_wh):
-                await self._async_abort_session("Energy sensor moved backwards unexpectedly")
-                return
+            if raw_energy is None or delta_wh < -1e-9 or not math.isfinite(delta_wh):
+                if reported:
+                    delta_wh = 0.0
+                else:
+                    await self._async_abort_session("Energy sensor moved backwards unexpectedly")
+                    return
             voltage_id, current_id = self.session.source_decision.get(
                 "diagnostic_sensors", (setup.voltage_sensor, setup.current_sensor)
             )
@@ -1628,6 +1677,8 @@ class BatteryChargeManager(ArchivePersistence):
                              voltage_v, current_a, fresh=fresh, restart=source == "restart",
                              reported_at=reported_at.timestamp() if reported_at else None,
                              raw_energy=raw_energy)
+            if reported and (raw_energy is None or (previous_raw is not None and raw_energy < previous_raw)):
+                self.session.metering["counter_discontinuous"] = True
             self.session.metering["meter_wh"] = previous_meter + max(0.0, delta_wh)
             self.session.metering["power_report_fresh"] = fresh
             if self.session.energy_source == "power":
@@ -1640,6 +1691,8 @@ class BatteryChargeManager(ArchivePersistence):
                         await self._async_abort_session("Power integration has missing or stale data")
                         return
                 self.session.gross_energy_wh = self.session.metering["power_wh"]
+            elif reported:
+                self.session.gross_energy_wh = self.session.metering["power_estimate_wh"]
             else:
                 self.session.gross_energy_wh = self.session.metering["meter_wh"]
             self.session.last_raw_energy_wh = raw_energy
@@ -1691,7 +1744,7 @@ class BatteryChargeManager(ArchivePersistence):
                 power_report_fresh=fresh,
                 metering_quality={key: self.session.metering.get(key) for key in (
                     "covered_seconds", "total_seconds", "max_power_step_wh",
-                    "meter_step_wh", "report_count", "max_report_interval_seconds", "estimate_covered_seconds")},
+                    "meter_step_wh", "report_count", "max_report_interval_seconds", "estimate_covered_seconds", "gaps", "counter_discontinuous", "longest_held_seconds")},
                 raw_energy_wh=raw_energy,
                 gross_energy_wh=self.session.gross_energy_wh,
                 idle_energy_wh=self.session.idle_energy_wh,
@@ -1701,6 +1754,9 @@ class BatteryChargeManager(ArchivePersistence):
                 temperature_c=temperature_c,
                 switch_state=switch_state.state,
             )
+            if reported and not self.session.samples:
+                self.session.pilot["integration_started_at"] = now_iso
+                self.session.pilot["startup_unobserved_seconds"] = self._elapsed_seconds(self.session.switch_on_at, now)
             self._append_sample(sample, source)
             self.session.last_sample_at = now_iso
             await self._async_sync_sample_archive()
@@ -1718,6 +1774,9 @@ class BatteryChargeManager(ArchivePersistence):
                     f"Measured temperature {temperature_c:.1f} °C exceeded setup limit"
                 )
                 return
+            if reported and self.session.mode == SESSION_CHARGING and self.session.metering.get("gaps"):
+                await self._async_abort_session("Reported-power charge interrupted by a recording gap")
+                return
             completed = await self._async_evaluate_session(now)
             if completed:
                 return
@@ -1734,10 +1793,12 @@ class BatteryChargeManager(ArchivePersistence):
 
     async def _async_evaluate_session(self, now: datetime) -> bool:
         """Evaluate mode-specific start, target, reliability, and end conditions."""
+        if self.session.mode == "rest_measuring":
+            return await self._evaluate_pilot(now)
         if self.session.mode == SESSION_IDLE_MEASURING:
             return await self._async_evaluate_idle_measurement(now)
         self._detect_charge_start(now)
-        if self.session.charge_started_at is None:
+        if self.session.charge_started_at is None and self.session.energy_source != "power_reported":
             if self._elapsed_seconds(self.session.switch_on_at, now) >= (
                 DEFAULT_CHARGE_START_TIMEOUT_MINUTES * 60
             ):
@@ -1758,6 +1819,8 @@ class BatteryChargeManager(ArchivePersistence):
             if self._calibration_exceeds_safety_limit():
                 await self._async_abort_session("Calibration energy exceeded safety limit")
                 return True
+            if self.session.energy_source == "power_reported":
+                return await self._evaluate_pilot(now)
             if self._detect_calibration_end(now):
                 await self._async_complete_calibration(
                     automatic=True,
@@ -1986,6 +2049,8 @@ class BatteryChargeManager(ArchivePersistence):
             if known
             else DEFAULT_CALIBRATION_ABSOLUTE_MAX_WH
         )
+        if self.session.pilot.get("calibration_safety_limit_wh") is not None:
+            limit = self.session.pilot["calibration_safety_limit_wh"]
         # The cumulative counter can stall while real energy is still delivered.
         # Accepted integration can only tighten this stop, never relax a limit.
         integrated = max(0.0, self.session.metering.get("power_wh", 0.0)
@@ -2097,6 +2162,8 @@ class BatteryChargeManager(ArchivePersistence):
             ) / 3600.0
             record = CalibrationRecord(
                 calibration_id=uuid4().hex,
+                energy_basis=self.session.pilot.get("energy_basis", "no_load_corrected"),
+                pilot=deepcopy(self.session.pilot),
                 origin_session_id=self.session.session_id,
                 comment=self.session.comment,
                 comment_history=deepcopy(self.session.comment_history),
@@ -2115,7 +2182,7 @@ class BatteryChargeManager(ArchivePersistence):
                 candidate_end_at=self.session.candidate_end_at,
                 charge_finished_at=endpoint_at,
                 end_detected_at=detected_at,
-                switch_off_at=switch_off_at,
+                switch_off_at=switch_off_at if switch_off_confirmed else None,
                 session_finished_at=switch_off_at,
                 session_duration_seconds=session_duration,
                 charge_duration_seconds=charge_duration,
@@ -2157,7 +2224,7 @@ class BatteryChargeManager(ArchivePersistence):
             )
             record.metering_comparison = metering.compare(
                 record.samples, record.charge_finished_at, baseline_for_math,
-                record.switch_on_at or record.session_started_at)
+                record.samples[0].timestamp if record.pilot and record.samples else record.switch_on_at or record.session_started_at)
             self._select_calibration_energy(record, self.session.source_decision.get("mode", "meter"))
             if automatic and self.session.source_decision.get("end_policy") == "observed_power" and setup.power_sensor:
                 record.end_method = self.session.end_evidence.get("method", "observed_low_power")
@@ -2173,6 +2240,7 @@ class BatteryChargeManager(ArchivePersistence):
                 record.quantity, record.switch_on_at or record.session_started_at)
             record.analysis_summary["endpoint_evidence"] = (deepcopy(self.session.end_evidence) if automatic else
                 {"method": "manual", "confirmed": False, "reason": reason})
+            self._pilot_finish_record(record)
             self.session.completion_record_id = record.calibration_id
             self.session.source_decision["calibration_choice"] = deepcopy(record.source_decision)
             self.calibrations[record.calibration_id] = record
@@ -2479,17 +2547,24 @@ class BatteryChargeManager(ArchivePersistence):
             and not item.legacy
         ]
         choices = {item.calibration_id: self._record_source_choice(item) for item in records}
-        eligible = [item for item in records if choices[item.calibration_id].get("source")
-                    and (choices[item.calibration_id]["source"] != "power" or setup.power_sensor)]
+        eligible = [item for item in records if self._usage_current(item) and choices[item.calibration_id].get("source")
+                    and (choices[item.calibration_id]["source"] not in {"power", "power_reported"} or setup.power_sensor)
+                    and choices[item.calibration_id]["source"] == item.energy_source]
         eligible_trusted = [item for item in eligible if item in trusted]
         excluded_low_confidence = len(eligible) - len(eligible_trusted) if eligible_trusted else 0
         eligible = eligible_trusted or eligible
         source = choices[eligible[-1].calibration_id]["source"] if eligible else None
-        used = [item for item in eligible if choices[item.calibration_id]["source"] == source]
+        newest = eligible[-1] if eligible else None
+        used = [item for item in eligible if choices[item.calibration_id]["source"] == source
+                and (source != "power_reported" or (item.energy_basis == newest.energy_basis
+                     and item.idle_measurement_ids == newest.idle_measurement_ids))]
         decision = {"source": source, "mode": self.energy_mode,
                     "reason": choices[used[-1].calibration_id]["reason"] if used else "no_usable_source",
                     "count": len(used), "absolute_accuracy_known": False}
-        values = [(item.metering_comparison["power_net_wh"] if source == "power" else
+        if source == "power_reported" and newest:
+            decision.update(energy_basis=newest.energy_basis, idle_reference=deepcopy(newest.pilot.get("idle_reference", {})))
+        values = [(item.metering_comparison["power_estimate_net_wh"] if source == "power_reported" else
+                   item.metering_comparison["power_net_wh"] if source == "power" else
                    item.metering_comparison.get("meter_net_wh", item.net_energy_wh)) for item in used]
         durations = [
             item.charge_duration_seconds
@@ -2678,6 +2753,10 @@ class BatteryChargeManager(ArchivePersistence):
             "target_percent": self.target_percent,
             "max_session_hours": self.max_session_hours,
             "energy_mode": self.energy_mode,
+            "energy_basis": self.energy_basis,
+            "rest_reference_summary": self.rest_reference_summary(),
+            "rest_measurements": [self._rest_row(r) for r in reversed(list(self.rest_measurements.values()))
+                                  if r.setup_id == setup_id and r.battery_id == battery_id and r.quantity == self.selected_quantity],
             "setups": setup_rows,
             "batteries": battery_rows,
             "idle_measurements": [
@@ -3027,7 +3106,7 @@ class BatteryChargeManager(ArchivePersistence):
         if temperature_sensor and not temperature_sensor.startswith("sensor."):
             raise HomeAssistantError("Temperature sensor must be a sensor entity")
 
-    def _validate_runtime_setup(self, setup: ChargerSetup) -> None:
+    def _validate_runtime_setup(self, setup: ChargerSetup, *, require_energy=True) -> None:
         """Validate current entity availability and units."""
         self._validate_setup_entities(
             setup.switch_entity,
@@ -3036,8 +3115,10 @@ class BatteryChargeManager(ArchivePersistence):
             setup.temperature_sensor,
         )
         energy_state = self.hass.states.get(setup.energy_sensor)
-        if self._energy_state_to_wh(energy_state) is None:
+        if require_energy and self._energy_state_to_wh(energy_state) is None:
             raise HomeAssistantError("Energy sensor is unavailable or has no energy unit")
+        if not require_energy and not setup.power_sensor:
+            raise HomeAssistantError("Reported integration requires active power")
         switch_state = self.hass.states.get(setup.switch_entity)
         if switch_state is None or switch_state.state in {"unknown", "unavailable"}:
             raise HomeAssistantError("Charge switch is unavailable")

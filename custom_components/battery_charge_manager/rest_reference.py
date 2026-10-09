@@ -100,31 +100,35 @@ def suggest(samples, reference, previous=None):
     upper, tolerance = reference['upper_power_w'], reference['tolerance_w']
     high_seen, lows, anchor, start_point = False, 0, None, samples[0]
     result['status'] = 'waiting_for_load'
-    last_end = timestamp(start_point.timestamp)
-    for point in samples[1:]:
+    last_end, start_index, evidence = timestamp(start_point.timestamp), 0, []
+    for index, point in enumerate(samples[1:], 1):
         end = timestamp(point.timestamp)
         if end-last_end < WINDOW_SECONDS:
             continue
-        block = window(observations, last_end, end)
+        block = window(observations[start_index:index], last_end, end)
         if not block['complete']:
-            high_seen, lows, anchor = False, 0, None
+            high_seen, lows, anchor, evidence = False, 0, None, []
         elif block['mean_power_w'] > upper+tolerance:
-            high_seen, lows, anchor = True, 0, None
+            high_seen, lows, anchor, evidence = True, 0, None, []
         elif high_seen and block['mean_power_w'] <= upper:
             if not lows:
                 anchor = start_point.timestamp
             lows += 1
+            evidence.append({k:v for k,v in block.items() if k != 'distribution'})
         else:
-            lows, anchor = 0, None
-        start_point, last_end = point, end
-    # A renewed instantaneous high must also withdraw a pending proposal before
-    # the next complete window. Normal residual pulses remain below upper+tol.
-    if result is not None and lows and finite(samples[-1].power_w) and samples[-1].power_w > upper+tolerance:
-        # Evaluate partial-window mean; one short pulse is not a new charge.
-        partial = window(observations, last_end, timestamp(samples[-1].timestamp))
-        if partial['covered_seconds'] and (not partial['complete'] or partial['mean_power_w'] > upper+tolerance):
-            lows, anchor = 0, None
+            lows, anchor, evidence = 0, None, []
+        start_point, last_end, start_index = point, end, index
+    # A recording gap invalidates even a partial block immediately. Pulses only
+    # affect a candidate through a complete time-weighted block, not their peak.
+    if timestamp(samples[-1].timestamp) > last_end:
+        partial = window(observations[start_index:], last_end, timestamp(samples[-1].timestamp))
+        if not partial['complete']:
+            high_seen, lows, anchor, evidence = False, 0, None, []
     result.update(status='suggested' if lows >= 4 else 'candidate' if lows else 'waiting_for_rest' if high_seen else 'waiting_for_load',
-                  endpoint_at=anchor, confirmed_windows=lows,
-                  upper_power_w=upper, tolerance_w=tolerance)
+                  endpoint_at=anchor, confirmed_windows=lows, window_seconds=WINDOW_SECONDS,
+                  upper_power_w=upper, tolerance_w=tolerance,
+                  fresh_seconds=sum(b['fresh_seconds'] for b in evidence),
+                  held_seconds=sum(b['held_seconds'] for b in evidence),
+                  block_means_w=[b['mean_power_w'] for b in evidence],
+                  confirmed_at=samples[-1].timestamp if lows >= 4 else None)
     return result

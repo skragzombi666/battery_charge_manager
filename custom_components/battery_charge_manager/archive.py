@@ -135,7 +135,7 @@ class RawArchive:
             info = db.execute('SELECT sample_count FROM traces WHERE id=?', (trace,)).fetchone()
             record.update(trace_id=trace, archived_sample_count=info[0])
 
-        for kind, id_key in (('idle_measurements', 'measurement_id'), ('calibrations', 'calibration_id')):
+        for kind, id_key in (('idle_measurements', 'measurement_id'), ('calibrations', 'calibration_id'), ('rest_measurements', 'measurement_id')):
             for index, record in enumerate(state.get(kind, [])):
                 retain(record, f'{kind}:{record.get(id_key) or index}')
         for index, record in enumerate(state.get('charge_history', [])):

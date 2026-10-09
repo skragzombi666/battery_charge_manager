@@ -332,6 +332,8 @@ class ManagerStatisticsTests(unittest.TestCase):
                     net_energy_wh=energy,
                     confidence="high",
                 )
+                from pilot_fixtures import reviewed
+                reviewed(self.manager, record)
                 self.manager.calibrations[record.calibration_id] = record
 
         summary = self.manager.calibration_summary(

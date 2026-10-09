@@ -1,23 +1,26 @@
 # Battery Charge Manager
 
-## Version 0.4.2: retained measurements and reliable completion
+## Version 0.5.0: reported-power pilot measurements and explicit review
 
-All raw observations and operations are now retained in an append-only SQLite
-archive. Stopped/incomplete attempts remain visible, and manual finish no longer
-requires valid calibration energy before switching off. Both energy paths,
-charge/post-end intervals and nominal-energy context remain explicitly distinct.
-See [the release notes and migration/downgrade instructions](docs/version-0.4.2.md).
+An opt-in pilot source integrates reported active power, discloses held values and
+recording gaps, and uses separate full-battery residual references for reviewable
+endpoint suggestions. Calibration completion and approval for charge targets are
+independent. Power and energy charts have separate synchronized axes.
+
+See [the pilot workflow, thresholds, update and migration instructions](docs/version-0.5.0.md).
+Existing calibration records require review before use in new charge targets.
+The update does not silently change the selected energy source.
 
 
 Battery Charge Manager is a Home Assistant custom integration for repeatable, energy-based charging of removable batteries through a metered smart plug.
 
-It is designed for batteries with their own charging electronics, such as USB-C rechargeable AA/AAA batteries connected to a USB power supply. The integration measures the complete charging arrangement at the mains side, learns full-charge energy profiles, and switches the charger off after a selected share of the calibrated net energy has been delivered.
+It is designed for batteries with their own charging electronics, such as USB-C rechargeable AA/AAA batteries connected to a USB power supply. The integration measures the complete charging arrangement at the mains side, learns full-charge energy profiles, and switches the charger off after a selected share of the approved energy target has been delivered, using the same source and gross/no-load-corrected basis.
 
 > Battery Charge Manager is an automation and measurement aid. It is not a battery-management system or a substitute for the battery's charger, protection electronics, manufacturer limits, or supervision appropriate to the battery chemistry.
 
 ## Current version
 
-**0.4.1**
+**0.5.0**
 
 ## Main interface
 

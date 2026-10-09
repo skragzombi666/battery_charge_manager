@@ -18,6 +18,7 @@ from test_core import (
 def handler_namespace():
     path = Path(__file__).resolve().parents[1] / "custom_components/battery_charge_manager/websocket_api.py"
     names = {
+        "ws_prepare_rest_reference", "ws_confirm_rest_reference", "ws_set_usage_approval", "ws_set_usb_comparison",
         "_manager", "_send_error", "ws_get_measurement", "ws_set_calibration_endpoint", "ws_get_raw_samples",
         "ws_set_measurement_validity", "ws_set_measurement_revision_approval",
         "ws_reanalyze_calibration", "ws_export_measurements", "ws_set_calibration_comment", "ws_start_calibration", "ws_set_settings",

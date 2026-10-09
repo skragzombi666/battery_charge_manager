@@ -110,6 +110,9 @@ def advance(
         'estimated_wh': state.get('power_estimate_wh', 0) - before_estimate,
         'reason': reason,
     }
+    held = state['last_interval']['estimate_seconds'] - state['last_interval']['accepted_seconds']
+    state['held_run_seconds'] = state.get('held_run_seconds', 0) + held if held > 0 else 0
+    state['longest_held_seconds'] = max(state.get('longest_held_seconds', 0), state['held_run_seconds'])
     if (reason == 'fresh_held' and state['last_interval']['seconds'] > 0
             and state['last_interval']['accepted_seconds'] == 0):
         state['last_interval']['reason'] = 'unaccepted_previous_or_current_report'
@@ -153,6 +156,8 @@ def compare(
     report['span_seconds'] = max(0, span)
     report['power_estimate_net_wh'] = max(0, last.power_estimate_wh - report['estimate_idle_energy_wh']) if last.power_estimate_wh is not None else None
     report['estimate_complete'] = bool(span > 0 and (last.metering_quality.get('estimate_covered_seconds') or 0) >= span * .99)
+    report['longest_held_seconds'] = last.metering_quality.get('longest_held_seconds')
+    report['counter_discontinuous'] = bool(last.metering_quality.get('counter_discontinuous'))
     report['unknown_seconds'] = max(0.0, span - estimate_covered)
     report['held_seconds'] = max(0.0, estimate_covered - covered)
     report['held_energy_wh'] = max(0.0, (last.power_estimate_wh or 0) - (last.power_energy_wh or 0))

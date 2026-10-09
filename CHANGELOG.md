@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- Add an explicit reported-power pilot source and gross/no-load-corrected energy basis. Keep fresh, held and unobserved intervals separate; diagnostic counter resets no longer stop this mode. Required-sensor and shutdown safeguards remain.
+- Add full-battery residual references for exact battery/setup/quantity/port profiles: preparation, explicit post-top-up confirmation, five-minute warm-up, 30-minute time-weighted analysis, and separate approval.
+- Propose a reviewable endpoint after four low-input windows following observed load. Pilot calibrations finish on user action, retain unknown charge duration until an endpoint is selected, and require explicit approval before supplying targets. One reviewed run suffices.
+- Freeze source/basis/reference decisions, reject stale review dialogs, retain approval histories, and add optional full-run USB comparison notes without scaling mains observations. Historic calibrations migrate as pending review.
+- Preserve per-channel chart boundaries before reduction; show held traces, independent power/energy axes and bounded time-bucket envelopes with quality bands. Rest traces support archive export, reopening and raw paging.
+- See [0.5.0 pilot and migration instructions](docs/version-0.5.0.md).
+
 ## 0.4.2
 
 - Retain every raw measurement, received observation, operation and analysis revision in a transactional SQLite archive. Remove automatic sample thinning, event suppression and the 100-operation cap; never purge old data on storage failure.
